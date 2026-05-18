@@ -20,14 +20,20 @@ export function useCameraWebRTC(
     new Map()
   )
 
+  // Store stream in a ref so createOffer doesn't need localStream as a dependency.
+  // Without this, any stream change (e.g. camera flip) recreates createOffer,
+  // which triggers the useEffect cleanup and closes all existing peer connections.
+  const localStreamRef = useRef(localStream)
+  localStreamRef.current = localStream
+
   const createOffer = useCallback(
     async (viewerSocketId: string) => {
-      if (!socket || !localStream) return
+      if (!socket || !localStreamRef.current) return
 
       const pc = createPeerConnection()
       peerConnections.current.set(viewerSocketId, pc)
 
-      addStreamTracks(pc, localStream)
+      addStreamTracks(pc, localStreamRef.current)
 
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) {
@@ -64,7 +70,7 @@ export function useCameraWebRTC(
         targetSocketId: viewerSocketId,
       })
     },
-    [socket, localStream]
+    [socket] // localStream intentionally excluded — read via ref to avoid reconnecting viewers on flip
   )
 
   useEffect(() => {

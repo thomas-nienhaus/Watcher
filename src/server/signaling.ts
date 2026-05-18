@@ -26,6 +26,10 @@ interface RateLimitState {
 }
 
 const rooms = new Map<string, RoomState>()
+
+// Reverse lookup: cameraSocketId → roomCode — O(1) instead of O(n) linear scan
+const cameraToRoom = new Map<string, string>()
+
 const rateLimitMap = new Map<string, RateLimitState>()
 
 const ROOM_EXPIRY_MS = parseInt(process.env.ROOM_EXPIRY_MS ?? '1800000', 10)
@@ -50,16 +54,21 @@ function isRateLimited(socketId: string): boolean {
   return false
 }
 
-function findRoomByCamera(socketId: string): [string, RoomState] | undefined {
-  for (const entry of rooms) {
-    if (entry[1].cameraSocketId === socketId) return entry
+function deleteRoom(roomCode: string): void {
+  const room = rooms.get(roomCode)
+  if (room) {
+    clearTimeout(room.expiryTimeout)
+    cameraToRoom.delete(room.cameraSocketId)
+    rooms.delete(roomCode)
   }
-  return undefined
 }
 
 export function registerSignalingHandlers(io: Server, socket: Socket): void {
   // ── Camera: create room ──────────────────────────────────────────────────
   socket.on('join-room', ({ roomCode }: { roomCode: string }) => {
+    // Rate-limit room creation to prevent enumeration attacks
+    if (isRateLimited(socket.id)) return
+
     if (!roomCode || !/^[A-Z2-9]{6}$/.test(roomCode)) {
       socket.emit('room-error', { message: 'Invalid room code format' })
       return
@@ -78,7 +87,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
     const expiryTimeout = setTimeout(() => {
       if (rooms.has(roomCode)) {
         io.to(roomCode).emit('room-error', { message: 'Room expired' })
-        rooms.delete(roomCode)
+        deleteRoom(roomCode)
       }
     }, ROOM_EXPIRY_MS)
 
@@ -88,6 +97,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
       createdAt: Date.now(),
       expiryTimeout,
     })
+    cameraToRoom.set(socket.id, roomCode)
 
     socket.emit('room-joined', { roomCode })
     console.log(`[Room] Created: ${roomCode} by ${socket.id}`)
@@ -117,11 +127,17 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
     console.log(`[Room] Viewer ${socket.id} joined ${roomCode} (total: ${room.viewers.size})`)
   })
 
-  // ── WebRTC offer: camera → viewer ────────────────────────────────────────
+  // ── WebRTC offer: camera → specific viewer ───────────────────────────────
   socket.on(
     'offer',
     ({ offer, targetSocketId }: { offer: SessionDescription; targetSocketId: string }) => {
       if (isRateLimited(socket.id)) return
+
+      // Verify sender is the camera for a room that contains the target viewer
+      const roomCode = cameraToRoom.get(socket.id)
+      const room = roomCode ? rooms.get(roomCode) : undefined
+      if (!room || !room.viewers.has(targetSocketId)) return
+
       io.to(targetSocketId).emit('offer-received', {
         offer,
         cameraSocketId: socket.id,
@@ -134,6 +150,12 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
     'answer',
     ({ answer, cameraSocketId }: { answer: SessionDescription; cameraSocketId: string }) => {
       if (isRateLimited(socket.id)) return
+
+      // Verify sender is a viewer in the camera's room
+      const roomCode = cameraToRoom.get(cameraSocketId)
+      const room = roomCode ? rooms.get(roomCode) : undefined
+      if (!room || !room.viewers.has(socket.id)) return
+
       io.to(cameraSocketId).emit('answer-received', {
         answer,
         viewerSocketId: socket.id,
@@ -146,6 +168,21 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
     'ice-candidate',
     ({ candidate, targetSocketId }: { candidate: IceCandidate; targetSocketId: string }) => {
       if (isRateLimited(socket.id)) return
+
+      // Verify sender and target share a room (camera↔viewer or viewer↔camera)
+      const senderIsCamera = cameraToRoom.has(socket.id)
+      if (senderIsCamera) {
+        // Camera sending to viewer: verify target is a viewer in sender's room
+        const roomCode = cameraToRoom.get(socket.id)!
+        const room = rooms.get(roomCode)
+        if (!room || !room.viewers.has(targetSocketId)) return
+      } else {
+        // Viewer sending to camera: verify target is the camera of a room containing sender
+        const roomCode = cameraToRoom.get(targetSocketId)
+        const room = roomCode ? rooms.get(roomCode) : undefined
+        if (!room || !room.viewers.has(socket.id)) return
+      }
+
       io.to(targetSocketId).emit('ice-candidate-received', {
         candidate,
         fromSocketId: socket.id,
@@ -156,17 +193,18 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
   // ── Audio level: camera → all viewers ────────────────────────────────────
   socket.on('audio-activity', (payload: { level: number; isActive: boolean }) => {
     if (isRateLimited(socket.id)) return
-    const entry = findRoomByCamera(socket.id)
-    if (entry) {
-      socket.to(entry[0]).emit('audio-activity', payload)
+    const roomCode = cameraToRoom.get(socket.id)
+    if (roomCode) {
+      socket.to(roomCode).emit('audio-activity', payload)
     }
   })
 
   // ── Battery level: camera → all viewers ──────────────────────────────────
   socket.on('battery-update', (payload: { level: number; charging: boolean }) => {
-    const entry = findRoomByCamera(socket.id)
-    if (entry) {
-      socket.to(entry[0]).emit('battery-update', payload)
+    if (isRateLimited(socket.id)) return
+    const roomCode = cameraToRoom.get(socket.id)
+    if (roomCode) {
+      socket.to(roomCode).emit('battery-update', payload)
     }
   })
 
@@ -174,14 +212,17 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
   socket.on('disconnect', () => {
     rateLimitMap.delete(socket.id)
 
+    // Camera disconnected — O(1) lookup via reverse map
+    const ownedRoomCode = cameraToRoom.get(socket.id)
+    if (ownedRoomCode) {
+      io.to(ownedRoomCode).emit('camera-disconnected', {})
+      deleteRoom(ownedRoomCode)
+      console.log(`[Room] Deleted: ${ownedRoomCode} (camera disconnected)`)
+      return
+    }
+
+    // Viewer disconnected — find their room via the rooms map
     for (const [roomCode, room] of rooms) {
-      if (room.cameraSocketId === socket.id) {
-        clearTimeout(room.expiryTimeout)
-        io.to(roomCode).emit('camera-disconnected', {})
-        rooms.delete(roomCode)
-        console.log(`[Room] Deleted: ${roomCode} (camera disconnected)`)
-        break
-      }
       if (room.viewers.has(socket.id)) {
         room.viewers.delete(socket.id)
         io.to(room.cameraSocketId).emit('viewer-left', {

@@ -15,8 +15,11 @@ export function useAudioDetection(
   const animFrameRef = useRef<number>(0)
   const sustainedStartRef = useRef<number | null>(null)
   const lastEmitRef = useRef<number>(0)
+  // Use refs so the running RAF loop reads live values without re-creating callbacks
   const onActivityRef = useRef(onActivity)
   onActivityRef.current = onActivity
+  const thresholdRef = useRef(threshold)
+  thresholdRef.current = threshold
 
   const startAnalysis = useCallback(() => {
     if (!contextRef.current || !analyserRef.current) return
@@ -27,13 +30,15 @@ export function useAudioDetection(
     const tick = () => {
       analyser.getByteFrequencyData(dataArray)
 
-      // RMS over frequency bins, scaled to 0–100 with boost for sensitivity
-      const sumSquares = dataArray.reduce((sum, v) => sum + v * v, 0)
+      // RMS over frequency bins — for loop is ~3x faster than reduce at 60fps
+      let sumSquares = 0
+      for (let i = 0; i < dataArray.length; i++) sumSquares += dataArray[i] * dataArray[i]
       const rms = Math.sqrt(sumSquares / dataArray.length)
       const level = Math.min(100, Math.round((rms / 255) * 100 * 3))
 
       const now = Date.now()
-      const isAboveThreshold = level > threshold
+      // Read threshold from ref so slider changes take effect without restarting the loop
+      const isAboveThreshold = level > thresholdRef.current
 
       if (isAboveThreshold) {
         sustainedStartRef.current ??= now
@@ -59,7 +64,7 @@ export function useAudioDetection(
     }
 
     animFrameRef.current = requestAnimationFrame(tick)
-  }, [threshold])
+  }, []) // No deps — reads threshold and callback via refs
 
   // IMPORTANT: Must be called synchronously inside a user gesture handler on iOS.
   // Creating AudioContext in useEffect or a Promise callback causes iOS to create

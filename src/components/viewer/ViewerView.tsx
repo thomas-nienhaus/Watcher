@@ -24,6 +24,7 @@ export default function ViewerView({ roomCode }: Props) {
   const [cameraBattery, setCameraBattery] = useState<{ level: number; charging: boolean } | null>(null)
   const [soundAlert, setSoundAlert] = useState(false)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const router = useRouter()
 
   const { socket, status: socketStatus } = useSocket()
@@ -75,7 +76,8 @@ export default function ViewerView({ roomCode }: Props) {
     const onAudioActivity = ({ isActive }: AudioDetectionState) => {
       if (isActive) {
         setSoundAlert(true)
-        setTimeout(() => setSoundAlert(false), 3000)
+        if (soundAlertTimerRef.current) clearTimeout(soundAlertTimerRef.current)
+        soundAlertTimerRef.current = setTimeout(() => setSoundAlert(false), 3000)
       }
     }
 
@@ -98,6 +100,7 @@ export default function ViewerView({ roomCode }: Props) {
       socket.off(SOCKET_EVENTS.CAMERA_DISCONNECTED, onCameraDisconnected)
       socket.off(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
       socket.off(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
+      if (soundAlertTimerRef.current) clearTimeout(soundAlertTimerRef.current)
     }
   }, [socket, socketStatus, roomCode])
 

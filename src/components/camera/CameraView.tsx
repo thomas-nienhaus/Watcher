@@ -18,7 +18,8 @@ import IOSWarning from '@/components/shared/IOSWarning'
 import ConnectionIndicator from '@/components/shared/ConnectionIndicator'
 import Button from '@/components/ui/Button'
 
-// Room code is stable for the lifetime of this component (once per mount)
+// Room code is generated once at module load — stable across re-renders and Fast Refresh.
+// A ref guards against the double-emit that React Strict Mode causes (mount→unmount→remount).
 const ROOM_CODE = generateRoomCode()
 
 export default function CameraView() {
@@ -28,6 +29,7 @@ export default function CameraView() {
   const [showQR, setShowQR] = useState(true)
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
   const qrGeneratedRef = useRef(false)
+  const roomJoinedRef = useRef(false)
 
   // Generate QR code data URL once the component mounts (client-only)
   useEffect(() => {
@@ -44,7 +46,7 @@ export default function CameraView() {
   }, [])
 
   const { socket, status: socketStatus } = useSocket()
-  const { stream, error: streamError, startStream, flipCamera, stopStream } = useMediaStream()
+  const { stream, error: streamError, startStream, flipCamera, stopStream, streamRef } = useMediaStream()
   const { viewerCount, connectionStates } = useCameraWebRTC(socket, stream)
   const { enable: enableWakeLock, disable: disableWakeLock, isLocked } = useWakeLock()
   const battery = useBattery()
@@ -68,10 +70,12 @@ export default function CameraView() {
     })
   }, [socket, battery.level, battery.charging, battery.isSupported])
 
-  // Register this device as the room camera when socket connects
+  // Register this device as the room camera when socket connects.
+  // roomJoinedRef prevents the double-emit that React Strict Mode triggers.
   useEffect(() => {
-    if (!socket || socketStatus !== 'connected') return
+    if (!socket || socketStatus !== 'connected' || roomJoinedRef.current) return
 
+    roomJoinedRef.current = true
     socket.emit(SOCKET_EVENTS.JOIN_ROOM, { roomCode: ROOM_CODE })
 
     const onRoomError = ({ message }: { message: string }) => {
@@ -84,6 +88,13 @@ export default function CameraView() {
   const handleStart = async () => {
     setPageState('requesting-permission')
     await startStream('environment')
+
+    // Guard: startStream catches errors internally and sets streamError without throwing.
+    // Check streamRef to detect failure before proceeding.
+    if (!streamRef.current) {
+      setPageState('idle')
+      return
+    }
 
     // initAudioContext MUST be called synchronously inside this user gesture handler.
     // iOS Safari will refuse to create AudioContext outside of a direct user gesture.
