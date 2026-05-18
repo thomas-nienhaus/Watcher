@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+  <rect width="180" height="180" fill="#0a0a0a"/>
+  <circle cx="90" cy="90" r="90" fill="#10b981"/>
+  <text x="90" y="100.8" font-family="-apple-system, system-ui, sans-serif"
+        font-size="49.50000000000001" font-weight="bold" fill="white"
+        text-anchor="middle" dominant-baseline="middle">👶</text>
+</svg>
