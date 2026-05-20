@@ -104,9 +104,13 @@ export default function ViewerView({ roomCode }: Props) {
     }
   }, [socket, socketStatus, roomCode])
 
-  // Reflect WebRTC state in page state
+  // Transition to streaming as soon as tracks arrive.
+  // connectionState is unreliable on iOS Safari — ontrack firing is the ground truth.
   useEffect(() => {
-    if (connectionState === 'connected') setPageState('streaming')
+    if (remoteStream) setPageState('streaming')
+  }, [remoteStream])
+
+  useEffect(() => {
     if (connectionState === 'failed') setPageState('disconnected')
   }, [connectionState])
 
