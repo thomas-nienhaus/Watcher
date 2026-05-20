@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Volume2, VolumeX, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, Volume2, VolumeX, Moon, Sun, MicOff } from 'lucide-react'
 import { useSocket } from '@/hooks/useSocket'
 import { useViewerWebRTC } from '@/hooks/useWebRTC'
 import { SOCKET_EVENTS } from '@/lib/constants'
@@ -30,9 +30,13 @@ export default function ViewerView({ roomCode }: Props) {
   const [cameraBattery, setCameraBattery] = useState<{ level: number; charging: boolean } | null>(null)
   const [soundAlert, setSoundAlert] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
+  const [cameraSettings, setCameraSettings] = useState<{ isMicMuted: boolean; isNightMode: boolean } | null>(null)
+  const [volume, setVolume] = useState(2)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const joinedSocketIdRef = useRef<string | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
   const router = useRouter()
 
   const { socket, status: socketStatus } = useSocket()
@@ -47,13 +51,36 @@ export default function ViewerView({ roomCode }: Props) {
     controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000)
   }, [])
 
+  const initAudioBoost = useCallback(() => {
+    if (!videoRef.current || gainNodeRef.current) return
+    try {
+      const ctx = new AudioContext()
+      const source = ctx.createMediaElementSource(videoRef.current)
+      const gain = ctx.createGain()
+      gain.gain.value = volume
+      source.connect(gain)
+      gain.connect(ctx.destination)
+      audioCtxRef.current = ctx
+      gainNodeRef.current = gain
+      if (ctx.state === 'suspended') ctx.resume()
+    } catch {
+      // Fallback: rely on native video volume only
+    }
+  }, [videoRef, volume])
+
+  // Sync gain value with volume slider
+  useEffect(() => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
+  }, [volume])
+
   const handleTap = useCallback(() => {
     if (isMuted) {
       setIsMuted(false)
       if (videoRef.current) videoRef.current.muted = false
+      initAudioBoost()
     }
     resetControlsTimer()
-  }, [isMuted, resetControlsTimer, videoRef])
+  }, [isMuted, resetControlsTimer, videoRef, initAudioBoost])
 
   // Join room — guard prevents double-join on iOS Safari re-renders
   useEffect(() => {
@@ -95,11 +122,16 @@ export default function ViewerView({ roomCode }: Props) {
       })
     }
 
+    const onCameraSettings = (payload: { isMicMuted: boolean; isNightMode: boolean }) => {
+      setCameraSettings(payload)
+    }
+
     socket.on(SOCKET_EVENTS.ROOM_JOINED, onRoomJoined)
     socket.on(SOCKET_EVENTS.ROOM_ERROR, onRoomError)
     socket.on(SOCKET_EVENTS.CAMERA_DISCONNECTED, onCameraDisconnected)
     socket.on(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
     socket.on(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
+    socket.on(SOCKET_EVENTS.CAMERA_SETTINGS_RECEIVED, onCameraSettings)
 
     return () => {
       socket.off(SOCKET_EVENTS.ROOM_JOINED, onRoomJoined)
@@ -107,6 +139,7 @@ export default function ViewerView({ roomCode }: Props) {
       socket.off(SOCKET_EVENTS.CAMERA_DISCONNECTED, onCameraDisconnected)
       socket.off(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
       socket.off(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
+      socket.off(SOCKET_EVENTS.CAMERA_SETTINGS_RECEIVED, onCameraSettings)
       if (soundAlertTimerRef.current) clearTimeout(soundAlertTimerRef.current)
     }
   }, [socket, socketStatus, roomCode])
@@ -206,13 +239,23 @@ export default function ViewerView({ roomCode }: Props) {
                     <ArrowLeft size={18} strokeWidth={1.5} />
                   </Link>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <ConnectionBadge state={connectionState} />
                     {cameraBattery && (
                       <BatteryBadge
                         level={cameraBattery.level}
                         charging={cameraBattery.charging}
                       />
+                    )}
+                    {cameraSettings?.isMicMuted && (
+                      <div className="flex items-center gap-1 text-white/40" title="Microfoon gedempt">
+                        <MicOff size={13} strokeWidth={1.5} />
+                      </div>
+                    )}
+                    {cameraSettings?.isNightMode && (
+                      <div className="flex items-center gap-1 text-white/40" title="Nachtmodus aan">
+                        <Moon size={13} strokeWidth={1.5} />
+                      </div>
                     )}
                     <AudioPulse level={audioLevel} isActive={soundAlert} nightMode={isNightMode} size="sm" />
                   </div>
@@ -230,30 +273,62 @@ export default function ViewerView({ roomCode }: Props) {
                            bg-gradient-to-t from-black/70 to-transparent"
                 onClick={(e) => e.stopPropagation()}
               >
-                <GlassPanel className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <IconBtn
-                      icon={isMuted ? VolumeX : Volume2}
-                      label={isMuted ? 'Geluid aan' : 'Geluid uit'}
-                      active={!isMuted}
-                      onPress={() => {
-                        const next = !isMuted
-                        setIsMuted(next)
-                        if (videoRef.current) videoRef.current.muted = next
-                        resetControlsTimer()
-                      }}
-                    />
-                    <IconBtn
-                      icon={isNightMode ? Sun : Moon}
-                      label={isNightMode ? 'Nachtmodus uit' : 'Nachtmodus aan'}
-                      active={isNightMode}
-                      onPress={() => {
-                        setIsNightMode((v) => !v)
-                        resetControlsTimer()
-                      }}
-                    />
+                <GlassPanel className="px-4 py-3 flex flex-col gap-3">
+                  <AudioPulse level={audioLevel} isActive={soundAlert} nightMode={isNightMode} />
+
+                  {/* Volume slider — only shown when unmuted */}
+                  {!isMuted && (
+                    <div className="flex items-center gap-2.5 px-1">
+                      <VolumeX size={12} strokeWidth={1.5} className="text-white/25 shrink-0" />
+                      <input
+                        type="range"
+                        min={1}
+                        max={4}
+                        step={0.1}
+                        value={volume}
+                        onChange={(e) => { setVolume(parseFloat(e.target.value)); resetControlsTimer() }}
+                        className="flex-1 h-1 rounded-full accent-accent-blue cursor-pointer"
+                        aria-label="Volume versterking"
+                      />
+                      <Volume2 size={12} strokeWidth={1.5} className="text-white/25 shrink-0" />
+                      <span className="text-white/30 text-xs w-8 text-right tabular-nums">
+                        {Math.round(volume * 100)}%
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <IconBtn
+                        icon={isMuted ? VolumeX : Volume2}
+                        label={isMuted ? 'Geluid aan' : 'Geluid uit'}
+                        active={!isMuted}
+                        onPress={() => {
+                          const next = !isMuted
+                          setIsMuted(next)
+                          if (next) {
+                            if (gainNodeRef.current) gainNodeRef.current.gain.value = 0
+                          } else {
+                            if (videoRef.current) videoRef.current.muted = false
+                            initAudioBoost()
+                            if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
+                            if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
+                          }
+                          resetControlsTimer()
+                        }}
+                      />
+                      <IconBtn
+                        icon={isNightMode ? Sun : Moon}
+                        label={isNightMode ? 'Nachtmodus uit' : 'Nachtmodus aan'}
+                        active={isNightMode}
+                        onPress={() => {
+                          setIsNightMode((v) => !v)
+                          resetControlsTimer()
+                        }}
+                      />
+                    </div>
+                    <span className="text-white/20 text-xs font-mono">{roomCode}</span>
                   </div>
-                  <span className="text-white/20 text-xs font-mono">{roomCode}</span>
                 </GlassPanel>
               </motion.div>
             </>
