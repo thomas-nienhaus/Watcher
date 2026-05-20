@@ -11,9 +11,11 @@ import { useMediaStream } from '@/hooks/useMediaStream'
 import { useAudioDetection } from '@/hooks/useAudioDetection'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { useBattery } from '@/hooks/useBattery'
+import { useSleepSound } from '@/hooks/useSleepSound'
 import { SOCKET_EVENTS, AUDIO_DETECTION } from '@/lib/constants'
 import type { CameraPageState, AudioDetectionState } from '@/types'
 import VideoPreview from './VideoPreview'
+import SleepSoundPanel from './SleepSoundPanel'
 import IOSWarning from '@/components/shared/IOSWarning'
 import NightModeOverlay from '@/components/shared/NightModeOverlay'
 import GlassPanel from '@/components/ui/GlassPanel'
@@ -71,6 +73,9 @@ export default function CameraView() {
 
   const { level: audioLevel, isActive: audioIsActive, initAudioContext } =
     useAudioDetection(stream, audioThreshold, onAudioActivity)
+
+  const { sound: sleepSound, volume: sleepVolume, initSleepAudio, setSound: setSleepSound, setVolume: setSleepVolume } =
+    useSleepSound(socket, socketStatus)
 
   useEffect(() => {
     if (!socket || !battery.isSupported || battery.level === null) return
@@ -135,6 +140,7 @@ export default function CameraView() {
     }
     setMicBlocked(streamRef.current.getAudioTracks().length === 0)
     initAudioContext(streamRef.current)
+    initSleepAudio()
     await enableWakeLock()
     setPageState('streaming')
     resetSheetTimer()
@@ -307,6 +313,14 @@ export default function CameraView() {
 
                   {/* Audio pulse */}
                   <AudioPulse level={audioLevel} isActive={audioIsActive} nightMode={isNightMode} />
+
+                  {/* Sleep sound controls */}
+                  <SleepSoundPanel
+                    sound={sleepSound}
+                    volume={sleepVolume}
+                    onSoundChange={setSleepSound}
+                    onVolumeChange={setSleepVolume}
+                  />
 
                   {/* Controls */}
                   <div className="flex items-center justify-between pt-1">

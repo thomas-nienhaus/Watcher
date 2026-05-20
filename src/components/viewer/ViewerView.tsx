@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Volume2, VolumeX, Moon, Sun, MicOff } from 'lucide-react'
+import { ArrowLeft, Volume2, VolumeX, Moon, Sun, MicOff, Music } from 'lucide-react'
 import { useSocket } from '@/hooks/useSocket'
 import { useViewerWebRTC } from '@/hooks/useWebRTC'
 import { SOCKET_EVENTS } from '@/lib/constants'
-import type { ViewerPageState, AudioDetectionState } from '@/types'
+import type { ViewerPageState, AudioDetectionState, SleepSoundType } from '@/types'
 import VideoStream from './VideoStream'
 import ConnectionStatus from './ConnectionStatus'
 import ConnectionStats from './ConnectionStats'
@@ -36,6 +36,9 @@ export default function ViewerView({ roomCode }: Props) {
   const [volume, setVolume] = useState(2)
   const [showStats, setShowStats] = useState(false)
   const [statsSnapshot, setStatsSnapshot] = useState<StatsSnapshot | null>(null)
+  const [sleepSound, setSleepSound] = useState<SleepSoundType>('off')
+  const [sleepVolume, setSleepVolume] = useState(0.5)
+  const [showSleepPanel, setShowSleepPanel] = useState(false)
 
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -146,12 +149,18 @@ export default function ViewerView({ roomCode }: Props) {
       setCameraSettings(payload)
     }
 
+    const onSleepSoundState = ({ sound, volume }: { sound: SleepSoundType; volume: number }) => {
+      setSleepSound(sound)
+      setSleepVolume(volume)
+    }
+
     socket.on(SOCKET_EVENTS.ROOM_JOINED, onRoomJoined)
     socket.on(SOCKET_EVENTS.ROOM_ERROR, onRoomError)
     socket.on(SOCKET_EVENTS.CAMERA_DISCONNECTED, onCameraDisconnected)
     socket.on(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
     socket.on(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
     socket.on(SOCKET_EVENTS.CAMERA_SETTINGS_RECEIVED, onCameraSettings)
+    socket.on(SOCKET_EVENTS.SLEEP_SOUND_STATE, onSleepSoundState)
 
     return () => {
       socket.off(SOCKET_EVENTS.ROOM_JOINED, onRoomJoined)
@@ -160,6 +169,7 @@ export default function ViewerView({ roomCode }: Props) {
       socket.off(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
       socket.off(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
       socket.off(SOCKET_EVENTS.CAMERA_SETTINGS_RECEIVED, onCameraSettings)
+      socket.off(SOCKET_EVENTS.SLEEP_SOUND_STATE, onSleepSoundState)
       if (soundAlertTimerRef.current) clearTimeout(soundAlertTimerRef.current)
     }
   }, [socket, socketStatus, roomCode])
@@ -379,6 +389,24 @@ export default function ViewerView({ roomCode }: Props) {
                 <GlassPanel className="px-4 py-3 flex flex-col gap-3">
                   <AudioPulse level={audioLevel} isActive={soundAlert} nightMode={isNightMode} />
 
+                  {/* Sleep sound remote control panel */}
+                  {showSleepPanel && (
+                    <SleepSoundRemote
+                      sound={sleepSound}
+                      volume={sleepVolume}
+                      onSoundChange={(s) => {
+                        setSleepSound(s)
+                        socket?.emit(SOCKET_EVENTS.SLEEP_SOUND_COMMAND, { sound: s, volume: sleepVolume })
+                        resetControlsTimer()
+                      }}
+                      onVolumeChange={(v) => {
+                        setSleepVolume(v)
+                        socket?.emit(SOCKET_EVENTS.SLEEP_SOUND_COMMAND, { sound: sleepSound, volume: v })
+                        resetControlsTimer()
+                      }}
+                    />
+                  )}
+
                   {/* Volume slider — only shown when unmuted */}
                   {!isMuted && (
                     <div className="flex items-center gap-2.5 px-1">
@@ -429,6 +457,15 @@ export default function ViewerView({ roomCode }: Props) {
                           resetControlsTimer()
                         }}
                       />
+                      <IconBtn
+                        icon={Music}
+                        label={showSleepPanel ? 'Slaapgeluid verbergen' : 'Slaapgeluid'}
+                        active={showSleepPanel || sleepSound !== 'off'}
+                        onPress={() => {
+                          setShowSleepPanel((v) => !v)
+                          resetControlsTimer()
+                        }}
+                      />
                     </div>
                     <span className="text-white/20 text-xs font-mono">{roomCode}</span>
                   </div>
@@ -465,5 +502,67 @@ function IconBtn({
     >
       <Icon size={16} strokeWidth={1.5} />
     </button>
+  )
+}
+
+const SLEEP_SOUNDS: { id: SleepSoundType; label: string }[] = [
+  { id: 'off',     label: 'Uit' },
+  { id: 'white',   label: 'Wit' },
+  { id: 'pink',    label: 'Roze' },
+  { id: 'brown',   label: 'Bruin' },
+  { id: 'rain',    label: 'Regen' },
+  { id: 'lullaby', label: 'Slaaplied' },
+]
+
+function SleepSoundRemote({
+  sound,
+  volume,
+  onSoundChange,
+  onVolumeChange,
+}: {
+  sound: SleepSoundType
+  volume: number
+  onSoundChange: (s: SleepSoundType) => void
+  onVolumeChange: (v: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 pt-1 border-t border-white/8">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {SLEEP_SOUNDS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => onSoundChange(id)}
+            aria-label={label}
+            aria-pressed={sound === id}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95
+              ${sound === id
+                ? 'bg-accent-blue/25 border border-accent-blue/40 text-accent-blue'
+                : 'bg-white/5 border border-white/8 text-white/45 hover:text-white/70'
+              }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {sound !== 'off' && (
+        <div className="flex items-center gap-2 px-1">
+          <VolumeX size={11} strokeWidth={1.5} className="text-white/25 shrink-0" />
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            className="flex-1 h-1 rounded-full accent-accent-blue cursor-pointer"
+            aria-label="Slaapgeluid volume"
+          />
+          <Volume2 size={11} strokeWidth={1.5} className="text-white/25 shrink-0" />
+          <span className="text-white/25 text-xs w-7 text-right tabular-nums">
+            {Math.round(volume * 100)}%
+          </span>
+        </div>
+      )}
+    </div>
   )
 }

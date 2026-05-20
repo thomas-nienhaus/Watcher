@@ -30,6 +30,9 @@ const rooms = new Map<string, RoomState>()
 // Reverse lookup: cameraSocketId → roomCode — O(1) instead of O(n) linear scan
 const cameraToRoom = new Map<string, string>()
 
+// Reverse lookup: viewerSocketId → roomCode
+const viewerToRoom = new Map<string, string>()
+
 const rateLimitMap = new Map<string, RateLimitState>()
 
 // Purge stale rate-limit entries every 60s to prevent unbounded map growth
@@ -128,6 +131,7 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
 
     socket.join(roomCode)
     room.viewers.add(socket.id)
+    viewerToRoom.set(socket.id, roomCode)
 
     // Tell the camera a viewer has joined so it can create an offer
     io.to(room.cameraSocketId).emit('viewer-joined', {
@@ -230,6 +234,24 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
     }
   })
 
+  // ── Sleep sound command: viewer → camera ──────────────────────────────────
+  socket.on('sleep-sound-command', (payload: { sound: string; volume: number }) => {
+    if (isRateLimited(socket.id)) return
+    const roomCode = viewerToRoom.get(socket.id)
+    const room = roomCode ? rooms.get(roomCode) : undefined
+    if (!room) return
+    io.to(room.cameraSocketId).emit('sleep-sound-command', payload)
+  })
+
+  // ── Sleep sound state: camera → all viewers ───────────────────────────────
+  socket.on('sleep-sound-state', (payload: { sound: string; volume: number }) => {
+    if (isRateLimited(socket.id)) return
+    const roomCode = cameraToRoom.get(socket.id)
+    if (roomCode) {
+      socket.to(roomCode).emit('sleep-sound-state', payload)
+    }
+  })
+
   // ── Cleanup on disconnect ─────────────────────────────────────────────────
   socket.on('disconnect', () => {
     rateLimitMap.delete(socket.id)
@@ -243,7 +265,8 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
       return
     }
 
-    // Viewer disconnected — find their room via the rooms map
+    // Viewer disconnected — O(1) lookup via reverse map
+    viewerToRoom.delete(socket.id)
     for (const [roomCode, room] of rooms) {
       if (room.viewers.has(socket.id)) {
         room.viewers.delete(socket.id)

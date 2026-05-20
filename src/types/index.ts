@@ -105,6 +105,20 @@ declare global {
   }
 }
 
+// ─── Sleep Sound ─────────────────────────────────────────────────────────────
+
+export type SleepSoundType = 'off' | 'white' | 'pink' | 'brown' | 'rain' | 'lullaby'
+
+export interface SleepSoundCommandPayload {
+  sound: SleepSoundType
+  volume: number
+}
+
+export interface SleepSoundStatePayload {
+  sound: SleepSoundType
+  volume: number
+}
+
 // ─── Page State Machines ─────────────────────────────────────────────────────
 
 export type CameraPageState =
