@@ -232,17 +232,25 @@ export function useViewerWebRTC(
         pcRef.current = pc
 
         pc.ontrack = (event) => {
-          // Desktop: event.streams[0] contains the full stream.
-          // iOS Safari: event.streams is empty — each track arrives separately.
-          // Always add to incomingStreamRef so both paths produce a complete stream.
-          const stream = event.streams[0] ?? incomingStreamRef.current!
-          event.streams[0]
-            ? (incomingStreamRef.current = stream)
-            : incomingStreamRef.current!.addTrack(event.track)
-
-          const combined = incomingStreamRef.current!
+          // Desktop: event.streams[0] has all tracks. iOS Safari: empty streams, tracks arrive one at a time.
+          // Always collect into incomingStreamRef, then create a NEW MediaStream so React always sees a
+          // reference change and the srcObject useEffect re-runs — critical for iOS to detect the video track.
+          if (event.streams[0]) {
+            event.streams[0].getTracks().forEach(track => {
+              if (!incomingStreamRef.current!.getTrackById(track.id)) {
+                incomingStreamRef.current!.addTrack(track)
+              }
+            })
+          } else {
+            incomingStreamRef.current!.addTrack(event.track)
+          }
+          const combined = new MediaStream(incomingStreamRef.current!.getTracks())
+          incomingStreamRef.current = combined
           setRemoteStream(combined)
-          if (videoRef.current) videoRef.current.srcObject = combined
+          if (videoRef.current) {
+            videoRef.current.srcObject = combined
+            videoRef.current.play().catch(() => {})
+          }
         }
 
         pc.onicecandidate = ({ candidate }) => {
