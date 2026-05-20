@@ -85,6 +85,10 @@ export default function CameraView() {
     return () => { socket.off(SOCKET_EVENTS.ROOM_ERROR, onRoomError) }
   }, [socket, socketStatus])
 
+  useEffect(() => {
+    if (socketStatus === 'disconnected') roomJoinedRef.current = false
+  }, [socketStatus])
+
   const resetSheetTimer = useCallback(() => {
     setShowSheet(true)
     if (sheetTimerRef.current) clearTimeout(sheetTimerRef.current)
