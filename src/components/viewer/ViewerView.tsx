@@ -202,10 +202,13 @@ export default function ViewerView({ roomCode }: Props) {
   }, [remoteStream])
 
   // Set srcObject after React renders the video element.
-  // Explicit play() required — iOS Safari doesn't always honour autoPlay on programmatic srcObject assignment.
+  // Guard: skip audio-only streams — iOS Safari won't render video if srcObject is set without a video track first.
+  // load() resets the element so the new srcObject is always picked up, even when changing an existing source.
   useEffect(() => {
     if (!remoteStream || !videoRef.current) return
+    if (remoteStream.getVideoTracks().length === 0) return
     videoRef.current.srcObject = remoteStream
+    videoRef.current.load()
     videoRef.current.play().catch(() => {})
   }, [remoteStream, videoRef])
 

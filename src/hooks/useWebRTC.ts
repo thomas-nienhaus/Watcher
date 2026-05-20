@@ -247,8 +247,12 @@ export function useViewerWebRTC(
           const combined = new MediaStream(incomingStreamRef.current!.getTracks())
           incomingStreamRef.current = combined
           setRemoteStream(combined)
-          if (videoRef.current) {
+          // Only assign srcObject once video is present — assigning an audio-only stream first
+          // prevents iOS Safari from rendering video when the track arrives later.
+          // load() resets the element so the new source is always picked up.
+          if (videoRef.current && combined.getVideoTracks().length > 0) {
             videoRef.current.srcObject = combined
+            videoRef.current.load()
             videoRef.current.play().catch(() => {})
           }
         }
