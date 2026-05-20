@@ -15,6 +15,7 @@ export function useCameraWebRTC(
   localStream: MediaStream | null
 ): CameraWebRTCState {
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map())
+  const pendingViewerIds = useRef<Set<string>>(new Set())
   const [viewerCount, setViewerCount] = useState(0)
   const [connectionStates, setConnectionStates] = useState<Map<string, RTCPeerConnectionState>>(
     new Map()
@@ -73,6 +74,13 @@ export function useCameraWebRTC(
     [socket] // localStream intentionally excluded — read via ref to avoid reconnecting viewers on flip
   )
 
+  // When the stream becomes available, retry offers for any viewers who joined before Start Camera.
+  useEffect(() => {
+    if (!localStream) return
+    pendingViewerIds.current.forEach((id) => createOffer(id))
+    pendingViewerIds.current.clear()
+  }, [localStream, createOffer])
+
   useEffect(() => {
     if (!socket) return
 
@@ -84,6 +92,11 @@ export function useCameraWebRTC(
       viewerCount: number
     }) => {
       setViewerCount(count)
+      if (!localStreamRef.current) {
+        // Stream not started yet — queue viewer and retry when stream becomes available
+        pendingViewerIds.current.add(viewerSocketId)
+        return
+      }
       createOffer(viewerSocketId)
     }
 
@@ -201,6 +214,17 @@ export function useViewerWebRTC(
         pc.onconnectionstatechange = () => {
           setConnectionState(pc.connectionState)
           if (pc.connectionState === 'failed') {
+            setError('Connection failed. Check your network and try again.')
+          }
+        }
+
+        // iOS Safari doesn't always fire onconnectionstatechange — use ICE state as backup
+        pc.oniceconnectionstatechange = () => {
+          if (['connected', 'completed'].includes(pc.iceConnectionState)) {
+            setConnectionState('connected')
+          }
+          if (pc.iceConnectionState === 'failed') {
+            setConnectionState('failed')
             setError('Connection failed. Check your network and try again.')
           }
         }
