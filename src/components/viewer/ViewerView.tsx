@@ -11,6 +11,8 @@ import { SOCKET_EVENTS } from '@/lib/constants'
 import type { ViewerPageState, AudioDetectionState } from '@/types'
 import VideoStream from './VideoStream'
 import ConnectionStatus from './ConnectionStatus'
+import ConnectionStats from './ConnectionStats'
+import type { StatsSnapshot } from './ConnectionStats'
 import NightModeOverlay from '@/components/shared/NightModeOverlay'
 import GlassPanel from '@/components/ui/GlassPanel'
 import BatteryBadge from '@/components/ui/BatteryBadge'
@@ -32,15 +34,26 @@ export default function ViewerView({ roomCode }: Props) {
   const [audioLevel, setAudioLevel] = useState(0)
   const [cameraSettings, setCameraSettings] = useState<{ isMicMuted: boolean; isNightMode: boolean } | null>(null)
   const [volume, setVolume] = useState(2)
+  const [showStats, setShowStats] = useState(false)
+  const [statsSnapshot, setStatsSnapshot] = useState<StatsSnapshot | null>(null)
+
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const joinedSocketIdRef = useRef<string | null>(null)
+  // Guards VIEWER_JOIN emission — reset on disconnect so reconnect works
+  const viewerJoinedRef = useRef(false)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const gainNodeRef = useRef<GainNode | null>(null)
+  // Stats tracking
+  const streamingStartRef = useRef<number | null>(null)
+  const lastBytesRef = useRef(0)
+  const lastBytesTimeRef = useRef(0)
+  const tapCountRef = useRef(0)
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const router = useRouter()
 
   const { socket, status: socketStatus } = useSocket()
-  const { remoteStream, connectionState, error, videoRef } = useViewerWebRTC(
+  const { remoteStream, connectionState, error, videoRef, getStats } = useViewerWebRTC(
     socket,
     cameraSocketId
   )
@@ -80,15 +93,22 @@ export default function ViewerView({ roomCode }: Props) {
       initAudioBoost()
     }
     resetControlsTimer()
+
+    // Triple-tap within 600ms toggles stats panel
+    tapCountRef.current += 1
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
+    tapTimerRef.current = setTimeout(() => { tapCountRef.current = 0 }, 600)
+    if (tapCountRef.current >= 3) {
+      tapCountRef.current = 0
+      setShowStats((v) => !v)
+    }
   }, [isMuted, resetControlsTimer, videoRef, initAudioBoost])
 
-  // Join room — guard prevents double-join on iOS Safari re-renders
+  // ── Effect 1: register socket event listeners (re-runs on any reconnect) ──
+  // Defined before Effect 2 so React runs them in order: listeners registered
+  // before VIEWER_JOIN is emitted.
   useEffect(() => {
     if (!socket || socketStatus !== 'connected') return
-    if (joinedSocketIdRef.current === socket.id) return
-    joinedSocketIdRef.current = socket.id ?? null
-
-    socket.emit(SOCKET_EVENTS.VIEWER_JOIN, { roomCode })
 
     const onRoomJoined = ({ cameraSocketId: camId }: { cameraSocketId?: string }) => {
       if (camId) {
@@ -144,9 +164,28 @@ export default function ViewerView({ roomCode }: Props) {
     }
   }, [socket, socketStatus, roomCode])
 
+  // ── Effect 2: emit VIEWER_JOIN once per connection lifecycle ──────────────
+  // viewerJoinedRef is reset on disconnect so this re-fires on reconnect.
+  useEffect(() => {
+    if (socketStatus === 'disconnected') {
+      viewerJoinedRef.current = false
+      return
+    }
+    if (!socket || socketStatus !== 'connected' || viewerJoinedRef.current) return
+    viewerJoinedRef.current = true
+    socket.emit(SOCKET_EVENTS.VIEWER_JOIN, { roomCode })
+  }, [socket, socketStatus, roomCode])
+
   // Transition to streaming as soon as tracks arrive
   useEffect(() => {
-    if (remoteStream) setPageState('streaming')
+    if (remoteStream) {
+      setPageState('streaming')
+      // Record start time and initialise bitrate baseline on first stream arrival
+      if (streamingStartRef.current === null) {
+        streamingStartRef.current = Date.now()
+        lastBytesTimeRef.current = Date.now()
+      }
+    }
   }, [remoteStream])
 
   // Set srcObject after React renders the video element
@@ -163,10 +202,43 @@ export default function ViewerView({ roomCode }: Props) {
     resetControlsTimer()
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current)
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current)
     }
   }, [resetControlsTimer])
 
+  // Poll WebRTC stats every 5s while streaming
   const isStreaming = pageState === 'streaming' && !!remoteStream
+  useEffect(() => {
+    if (!isStreaming) return
+    const id = setInterval(async () => {
+      const report = await getStats()
+      if (!report) return
+      let bytesReceived = 0
+      let rttMs: number | null = null
+      let packetsLost: number | null = null
+      report.forEach((stat: Record<string, unknown>) => {
+        if (stat.type === 'inbound-rtp' && stat.kind === 'video') {
+          bytesReceived = (stat.bytesReceived as number) ?? 0
+          packetsLost = (stat.packetsLost as number) ?? null
+        }
+        if (stat.type === 'remote-inbound-rtp' && stat.kind === 'video') {
+          const rtt = stat.roundTripTime as number | undefined
+          rttMs = rtt != null ? Math.round(rtt * 1000) : null
+        }
+      })
+      const now = Date.now()
+      const deltaBytes = bytesReceived - lastBytesRef.current
+      const deltaSec = (now - lastBytesTimeRef.current) / 1000
+      const bitrateKbps = deltaSec > 0 ? Math.round((deltaBytes * 8) / deltaSec / 1000) : null
+      lastBytesRef.current = bytesReceived
+      lastBytesTimeRef.current = now
+      const uptimeSeconds = streamingStartRef.current
+        ? Math.floor((now - streamingStartRef.current) / 1000)
+        : 0
+      setStatsSnapshot({ uptimeSeconds, bitrateKbps, rttMs, packetsLost })
+    }, 5000)
+    return () => clearInterval(id)
+  }, [isStreaming, getStats])
 
   return (
     <div className="relative h-full bg-black overflow-hidden" onClick={handleTap}>
@@ -184,12 +256,7 @@ export default function ViewerView({ roomCode }: Props) {
             {Array.from({ length: 12 }).map((_, i) => {
               const filled = Math.round((audioLevel / 100) * 12)
               const isFilled = i < filled
-              // Color: green → yellow → red across the 12 bars
-              const barColor = i < 4
-                ? '#4ade80'   // green
-                : i < 8
-                  ? '#facc15' // yellow
-                  : '#f87171' // red
+              const barColor = i < 4 ? '#4ade80' : i < 8 ? '#facc15' : '#f87171'
               return (
                 <div
                   key={i}
@@ -242,6 +309,13 @@ export default function ViewerView({ roomCode }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Connection stats overlay — triple-tap to toggle */}
+      {showStats && statsSnapshot && (
+        <div className="absolute top-16 right-4 z-50 pointer-events-none">
+          <ConnectionStats stats={statsSnapshot} />
+        </div>
+      )}
 
       {/* Streaming overlays */}
       {isStreaming && (

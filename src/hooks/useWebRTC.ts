@@ -199,12 +199,17 @@ export function useCameraWebRTC(
 export function useViewerWebRTC(
   socket: Socket | null,
   cameraSocketId: string | null
-): ViewerWebRTCState & { videoRef: React.RefObject<HTMLVideoElement | null> } {
+): ViewerWebRTCState & { videoRef: React.RefObject<HTMLVideoElement | null>; getStats: () => Promise<RTCStatsReport | null> } {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState | 'idle'>('idle')
   const [error, setError] = useState<string | null>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  const getStats = useCallback(async (): Promise<RTCStatsReport | null> => {
+    if (!pcRef.current) return null
+    return pcRef.current.getStats()
+  }, [])
   // iOS Safari: event.streams is empty — tracks arrive individually.
   // Collect them into one MediaStream so the video element gets a complete source.
   const incomingStreamRef = useRef<MediaStream | null>(null)
@@ -314,5 +319,5 @@ export function useViewerWebRTC(
     }
   }, [socket, cameraSocketId])
 
-  return { remoteStream, connectionState, error, videoRef }
+  return { remoteStream, connectionState, error, videoRef, getStats }
 }
