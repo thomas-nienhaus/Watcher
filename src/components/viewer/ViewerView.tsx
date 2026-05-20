@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Volume2, VolumeX, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, Volume2, VolumeX, Moon, Sun, MicOff } from 'lucide-react'
 import { useSocket } from '@/hooks/useSocket'
 import { useViewerWebRTC } from '@/hooks/useWebRTC'
 import { SOCKET_EVENTS } from '@/lib/constants'
@@ -30,6 +30,7 @@ export default function ViewerView({ roomCode }: Props) {
   const [cameraBattery, setCameraBattery] = useState<{ level: number; charging: boolean } | null>(null)
   const [soundAlert, setSoundAlert] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
+  const [cameraSettings, setCameraSettings] = useState<{ isMicMuted: boolean; isNightMode: boolean } | null>(null)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const joinedSocketIdRef = useRef<string | null>(null)
@@ -95,11 +96,16 @@ export default function ViewerView({ roomCode }: Props) {
       })
     }
 
+    const onCameraSettings = (payload: { isMicMuted: boolean; isNightMode: boolean }) => {
+      setCameraSettings(payload)
+    }
+
     socket.on(SOCKET_EVENTS.ROOM_JOINED, onRoomJoined)
     socket.on(SOCKET_EVENTS.ROOM_ERROR, onRoomError)
     socket.on(SOCKET_EVENTS.CAMERA_DISCONNECTED, onCameraDisconnected)
     socket.on(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
     socket.on(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
+    socket.on(SOCKET_EVENTS.CAMERA_SETTINGS_RECEIVED, onCameraSettings)
 
     return () => {
       socket.off(SOCKET_EVENTS.ROOM_JOINED, onRoomJoined)
@@ -107,6 +113,7 @@ export default function ViewerView({ roomCode }: Props) {
       socket.off(SOCKET_EVENTS.CAMERA_DISCONNECTED, onCameraDisconnected)
       socket.off(SOCKET_EVENTS.AUDIO_ACTIVITY_RECEIVED, onAudioActivity)
       socket.off(SOCKET_EVENTS.BATTERY_UPDATE_RECEIVED, onBatteryUpdate)
+      socket.off(SOCKET_EVENTS.CAMERA_SETTINGS_RECEIVED, onCameraSettings)
       if (soundAlertTimerRef.current) clearTimeout(soundAlertTimerRef.current)
     }
   }, [socket, socketStatus, roomCode])
@@ -206,13 +213,23 @@ export default function ViewerView({ roomCode }: Props) {
                     <ArrowLeft size={18} strokeWidth={1.5} />
                   </Link>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <ConnectionBadge state={connectionState} />
                     {cameraBattery && (
                       <BatteryBadge
                         level={cameraBattery.level}
                         charging={cameraBattery.charging}
                       />
+                    )}
+                    {cameraSettings?.isMicMuted && (
+                      <div className="flex items-center gap-1 text-white/40" title="Microfoon gedempt">
+                        <MicOff size={13} strokeWidth={1.5} />
+                      </div>
+                    )}
+                    {cameraSettings?.isNightMode && (
+                      <div className="flex items-center gap-1 text-white/40" title="Nachtmodus aan">
+                        <Moon size={13} strokeWidth={1.5} />
+                      </div>
                     )}
                     <AudioPulse level={audioLevel} isActive={soundAlert} nightMode={isNightMode} size="sm" />
                   </div>
@@ -230,30 +247,33 @@ export default function ViewerView({ roomCode }: Props) {
                            bg-gradient-to-t from-black/70 to-transparent"
                 onClick={(e) => e.stopPropagation()}
               >
-                <GlassPanel className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <IconBtn
-                      icon={isMuted ? VolumeX : Volume2}
-                      label={isMuted ? 'Geluid aan' : 'Geluid uit'}
-                      active={!isMuted}
-                      onPress={() => {
-                        const next = !isMuted
-                        setIsMuted(next)
-                        if (videoRef.current) videoRef.current.muted = next
-                        resetControlsTimer()
-                      }}
-                    />
-                    <IconBtn
-                      icon={isNightMode ? Sun : Moon}
-                      label={isNightMode ? 'Nachtmodus uit' : 'Nachtmodus aan'}
-                      active={isNightMode}
-                      onPress={() => {
-                        setIsNightMode((v) => !v)
-                        resetControlsTimer()
-                      }}
-                    />
+                <GlassPanel className="px-4 py-3 flex flex-col gap-3">
+                  <AudioPulse level={audioLevel} isActive={soundAlert} nightMode={isNightMode} />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <IconBtn
+                        icon={isMuted ? VolumeX : Volume2}
+                        label={isMuted ? 'Geluid aan' : 'Geluid uit'}
+                        active={!isMuted}
+                        onPress={() => {
+                          const next = !isMuted
+                          setIsMuted(next)
+                          if (videoRef.current) videoRef.current.muted = next
+                          resetControlsTimer()
+                        }}
+                      />
+                      <IconBtn
+                        icon={isNightMode ? Sun : Moon}
+                        label={isNightMode ? 'Nachtmodus uit' : 'Nachtmodus aan'}
+                        active={isNightMode}
+                        onPress={() => {
+                          setIsNightMode((v) => !v)
+                          resetControlsTimer()
+                        }}
+                      />
+                    </div>
+                    <span className="text-white/20 text-xs font-mono">{roomCode}</span>
                   </div>
-                  <span className="text-white/20 text-xs font-mono">{roomCode}</span>
                 </GlassPanel>
               </motion.div>
             </>

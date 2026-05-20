@@ -43,6 +43,8 @@ export const SOCKET_EVENTS = {
   ICE_CANDIDATE_RECEIVED: 'ice-candidate-received',
   AUDIO_ACTIVITY_RECEIVED: 'audio-activity',   // same name, different direction
   BATTERY_UPDATE_RECEIVED: 'battery-update',
+  CAMERA_SETTINGS: 'camera-settings',
+  CAMERA_SETTINGS_RECEIVED: 'camera-settings-received',
   ROOM_ERROR: 'room-error',
   CAMERA_DISCONNECTED: 'camera-disconnected',
 } as const

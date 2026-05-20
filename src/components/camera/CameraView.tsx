@@ -89,6 +89,29 @@ export default function CameraView() {
     if (socketStatus === 'disconnected') roomJoinedRef.current = false
   }, [socketStatus])
 
+  // Emit camera settings to viewers on change and when a new viewer joins
+  const isMicMutedRef = useRef(isMicMuted)
+  isMicMutedRef.current = isMicMuted
+  const isNightModeRef = useRef(isNightMode)
+  isNightModeRef.current = isNightMode
+
+  useEffect(() => {
+    if (!socket || socketStatus !== 'connected') return
+    socket.emit(SOCKET_EVENTS.CAMERA_SETTINGS, { isMicMuted, isNightMode })
+  }, [socket, socketStatus, isMicMuted, isNightMode])
+
+  useEffect(() => {
+    if (!socket || socketStatus !== 'connected') return
+    const onViewerJoined = () => {
+      socket.emit(SOCKET_EVENTS.CAMERA_SETTINGS, {
+        isMicMuted: isMicMutedRef.current,
+        isNightMode: isNightModeRef.current,
+      })
+    }
+    socket.on(SOCKET_EVENTS.VIEWER_JOINED, onViewerJoined)
+    return () => { socket.off(SOCKET_EVENTS.VIEWER_JOINED, onViewerJoined) }
+  }, [socket, socketStatus])
+
   const resetSheetTimer = useCallback(() => {
     setShowSheet(true)
     if (sheetTimerRef.current) clearTimeout(sheetTimerRef.current)
@@ -103,7 +126,7 @@ export default function CameraView() {
       return
     }
     setMicBlocked(streamRef.current.getAudioTracks().length === 0)
-    initAudioContext()
+    initAudioContext(streamRef.current)
     await enableWakeLock()
     setPageState('streaming')
     resetSheetTimer()

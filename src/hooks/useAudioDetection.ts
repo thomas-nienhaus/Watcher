@@ -69,14 +69,15 @@ export function useAudioDetection(
   // IMPORTANT: Must be called synchronously inside a user gesture handler on iOS.
   // Creating AudioContext in useEffect or a Promise callback causes iOS to create
   // it in a permanently suspended state that cannot be resumed.
-  const initAudioContext = useCallback(() => {
-    if (!stream || contextRef.current) return
+  const initAudioContext = useCallback((streamOverride?: MediaStream | null) => {
+    const s = streamOverride ?? stream
+    if (!s || contextRef.current) return
 
     const ctx = new AudioContext()
     const analyser = ctx.createAnalyser()
     analyser.fftSize = AUDIO_DETECTION.FFT_SIZE
 
-    const source = ctx.createMediaStreamSource(stream)
+    const source = ctx.createMediaStreamSource(s)
     source.connect(analyser)
 
     contextRef.current = ctx

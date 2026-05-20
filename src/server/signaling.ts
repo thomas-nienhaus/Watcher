@@ -208,6 +208,15 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
     }
   })
 
+  // ── Camera settings: camera → all viewers ────────────────────────────────
+  socket.on('camera-settings', (payload: { isMicMuted: boolean; isNightMode: boolean }) => {
+    if (isRateLimited(socket.id)) return
+    const roomCode = cameraToRoom.get(socket.id)
+    if (roomCode) {
+      socket.to(roomCode).emit('camera-settings-received', payload)
+    }
+  })
+
   // ── Cleanup on disconnect ─────────────────────────────────────────────────
   socket.on('disconnect', () => {
     rateLimitMap.delete(socket.id)
