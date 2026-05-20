@@ -24,6 +24,7 @@ export function createPeerConnection(): RTCPeerConnection {
   return new RTCPeerConnection({
     iceServers: iceServersCache ?? DEFAULT_ICE,
     iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle',  // force audio+video onto one ICE transport
   })
 }
 
