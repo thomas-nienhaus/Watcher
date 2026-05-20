@@ -32,4 +32,6 @@ export const SOCKET_EVENTS = {
   CAMERA_SETTINGS_RECEIVED: 'camera-settings-received',
   ROOM_ERROR: 'room-error',
   CAMERA_DISCONNECTED: 'camera-disconnected',
+  SLEEP_SOUND_COMMAND: 'sleep-sound-command',    // Viewer→Server→Camera
+  SLEEP_SOUND_STATE: 'sleep-sound-state',        // Camera→Server→all Viewers
 } as const
