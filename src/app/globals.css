@@ -5,38 +5,55 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --glass-bg: rgba(17, 24, 39, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.06);
+    --glass-blur: 24px;
+    --glow-blue: 0 0 60px rgba(125, 211, 252, 0.10);
+    --glow-live: 0 0 20px rgba(239, 68, 68, 0.45);
+    --radius-panel: 24px;
+    --radius-button: 16px;
   }
 
   html,
   body {
-    @apply bg-background text-gray-50;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    /* Prevent pull-to-refresh and bounce on iOS PWA */
+    @apply bg-surface-0 text-white;
+    font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     overscroll-behavior: none;
     -webkit-text-size-adjust: 100%;
-  }
-
-  /* Night mode: reduce brightness with a red tint for dark rooms */
-  .night-mode {
-    filter: brightness(0.25) sepia(100%) hue-rotate(315deg) saturate(150%);
   }
 }
 
 @layer utilities {
+  .pt-safe {
+    padding-top: max(1rem, env(safe-area-inset-top));
+  }
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
   .safe-top {
     padding-top: env(safe-area-inset-top);
   }
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .safe-x {
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
   }
-  .pt-safe {
-    padding-top: max(1rem, env(safe-area-inset-top));
+
+  .glow-blue {
+    box-shadow: var(--glow-blue);
   }
-  .pb-safe {
-    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+
+  .glow-live {
+    box-shadow: var(--glow-live);
+  }
+
+  /* Night mode: dim the entire view with a warm red tint */
+  .night-mode {
+    filter: brightness(0.25) sepia(100%) hue-rotate(315deg) saturate(150%);
   }
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { VolumeX } from 'lucide-react'
 
 interface Props {
   videoRef: React.RefObject<HTMLVideoElement | null>
@@ -13,17 +14,16 @@ export default function VideoStream({ videoRef, isMuted, onTap }: Props) {
     <div className="absolute inset-0" onClick={onTap}>
       <video
         ref={videoRef}
-        // playsInline is MANDATORY for iOS — video plays inline instead of fullscreen popup
         autoPlay
         playsInline
-        // Start muted to satisfy browser autoplay policies; user unmutes via tap
         muted={isMuted}
         className="w-full h-full object-cover bg-black"
       />
       {isMuted && (
-        <div className="absolute inset-x-0 bottom-24 flex justify-center pointer-events-none">
-          <div className="bg-black/70 backdrop-blur text-white rounded-xl px-4 py-2 text-sm font-medium">
-            🔇 Tap to unmute
+        <div className="absolute inset-x-0 bottom-28 flex justify-center pointer-events-none">
+          <div className="glass rounded-2xl px-4 py-2.5 flex items-center gap-2">
+            <VolumeX size={14} strokeWidth={1.5} className="text-white/50" />
+            <span className="text-white/60 text-xs font-medium">Tik om geluid aan te zetten</span>
           </div>
         </div>
       )}

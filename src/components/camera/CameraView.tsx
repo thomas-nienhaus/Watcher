@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowLeft, FlipHorizontal, Mic, MicOff, Moon, Sun, StopCircle, Users } from 'lucide-react'
 import { generateRoomCode } from '@/lib/roomCode'
 import { useSocket } from '@/hooks/useSocket'
 import { useCameraWebRTC } from '@/hooks/useWebRTC'
@@ -12,26 +14,29 @@ import { useBattery } from '@/hooks/useBattery'
 import { SOCKET_EVENTS, AUDIO_DETECTION } from '@/lib/constants'
 import type { CameraPageState, AudioDetectionState } from '@/types'
 import VideoPreview from './VideoPreview'
-import AudioMeter from './AudioMeter'
-import CameraControls from './CameraControls'
 import IOSWarning from '@/components/shared/IOSWarning'
-import ConnectionIndicator from '@/components/shared/ConnectionIndicator'
+import NightModeOverlay from '@/components/shared/NightModeOverlay'
+import GlassPanel from '@/components/ui/GlassPanel'
+import LiveIndicator from '@/components/ui/LiveIndicator'
+import BatteryBadge from '@/components/ui/BatteryBadge'
+import AudioPulse from '@/components/ui/AudioPulse'
+import RoomCodeDisplay from '@/components/ui/RoomCodeDisplay'
 import Button from '@/components/ui/Button'
 
-// Room code is generated once at module load — stable across re-renders and Fast Refresh.
-// A ref guards against the double-emit that React Strict Mode causes (mount→unmount→remount).
 const ROOM_CODE = generateRoomCode()
 
 export default function CameraView() {
   const [pageState, setPageState] = useState<CameraPageState>('idle')
   const [isNightMode, setIsNightMode] = useState(false)
+  const [isMicMuted, setIsMicMuted] = useState(false)
   const [audioThreshold, setAudioThreshold] = useState<number>(AUDIO_DETECTION.DEFAULT_THRESHOLD)
-  const [showQR, setShowQR] = useState(true)
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
+  const [micBlocked, setMicBlocked] = useState(false)
+  const [showSheet, setShowSheet] = useState(true)
+  const sheetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const qrGeneratedRef = useRef(false)
   const roomJoinedRef = useRef(false)
 
-  // Generate QR code data URL once the component mounts (client-only)
   useEffect(() => {
     if (qrGeneratedRef.current) return
     qrGeneratedRef.current = true
@@ -48,7 +53,7 @@ export default function CameraView() {
   const { socket, status: socketStatus } = useSocket()
   const { stream, error: streamError, startStream, flipCamera, stopStream, streamRef } = useMediaStream()
   const { viewerCount, connectionStates } = useCameraWebRTC(socket, stream)
-  const { enable: enableWakeLock, disable: disableWakeLock, isLocked } = useWakeLock()
+  const { enable: enableWakeLock, disable: disableWakeLock } = useWakeLock()
   const battery = useBattery()
 
   const onAudioActivity = useCallback(
@@ -61,7 +66,6 @@ export default function CameraView() {
   const { level: audioLevel, isActive: audioIsActive, initAudioContext } =
     useAudioDetection(stream, audioThreshold, onAudioActivity)
 
-  // Send battery status to viewers whenever it changes
   useEffect(() => {
     if (!socket || !battery.isSupported || battery.level === null) return
     socket.emit(SOCKET_EVENTS.BATTERY_UPDATE, {
@@ -70,14 +74,10 @@ export default function CameraView() {
     })
   }, [socket, battery.level, battery.charging, battery.isSupported])
 
-  // Register this device as the room camera when socket connects.
-  // roomJoinedRef prevents the double-emit that React Strict Mode triggers.
   useEffect(() => {
     if (!socket || socketStatus !== 'connected' || roomJoinedRef.current) return
-
     roomJoinedRef.current = true
     socket.emit(SOCKET_EVENTS.JOIN_ROOM, { roomCode: ROOM_CODE })
-
     const onRoomError = ({ message }: { message: string }) => {
       console.error('[Room]', message)
     }
@@ -85,23 +85,24 @@ export default function CameraView() {
     return () => { socket.off(SOCKET_EVENTS.ROOM_ERROR, onRoomError) }
   }, [socket, socketStatus])
 
+  const resetSheetTimer = useCallback(() => {
+    setShowSheet(true)
+    if (sheetTimerRef.current) clearTimeout(sheetTimerRef.current)
+    sheetTimerRef.current = setTimeout(() => setShowSheet(false), 5000)
+  }, [])
+
   const handleStart = async () => {
     setPageState('requesting-permission')
     await startStream('environment')
-
-    // Guard: startStream catches errors internally and sets streamError without throwing.
-    // Check streamRef to detect failure before proceeding.
     if (!streamRef.current) {
       setPageState('idle')
       return
     }
-
-    // initAudioContext MUST be called synchronously inside this user gesture handler.
-    // iOS Safari will refuse to create AudioContext outside of a direct user gesture.
+    setMicBlocked(streamRef.current.getAudioTracks().length === 0)
     initAudioContext()
-
     await enableWakeLock()
     setPageState('streaming')
+    resetSheetTimer()
   }
 
   const handleStop = useCallback(() => {
@@ -110,155 +111,230 @@ export default function CameraView() {
     setPageState('idle')
   }, [stopStream, disableWakeLock])
 
-  // Derive overall connection state for the indicator
   const viewerIds = Array.from(connectionStates.keys())
   const overallState: RTCPeerConnectionState | 'idle' =
     viewerIds.length > 0 ? (connectionStates.get(viewerIds[0]) ?? 'idle') : 'idle'
 
+  const isStreaming = pageState === 'streaming'
+
   return (
     <div
-      className={`relative h-full flex flex-col bg-background ${
-        isNightMode ? 'night-mode' : ''
-      }`}
+      className={`relative h-full bg-surface-0 overflow-hidden`}
+      onClick={isStreaming ? resetSheetTimer : undefined}
     >
       <IOSWarning />
+      <NightModeOverlay active={isNightMode} />
 
-      {/* Full-screen video preview when streaming */}
+      {/* Full-screen video */}
       {stream && (
         <div className="absolute inset-0">
           <VideoPreview stream={stream} />
-          {/* Gradient overlays so controls remain readable over video */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70 pointer-events-none" />
         </div>
       )}
 
-      {/* ── Top bar ─────────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex items-center justify-between px-4 pt-safe py-3">
-        <Link
-          href="/"
-          className="text-gray-400 hover:text-white transition-colors text-sm"
-          onClick={handleStop}
-        >
-          ← Home
-        </Link>
-
-        <div className="flex items-center gap-3 text-sm text-gray-300">
-          {pageState === 'streaming' && (
-            <>
-              <ConnectionIndicator state={overallState} />
-              <span title="Viewers connected">👤 {viewerCount}</span>
-              {isLocked && <span title="Screen stay-awake active">🔆</span>}
-              {battery.isSupported && battery.level !== null && (
-                <span>
-                  {battery.charging ? '⚡' : '🔋'} {battery.level}%
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Main content ─────────────────────────────────────────────────── */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center gap-6 px-6">
-        {/* Idle: show QR + room code + start button */}
-        {pageState === 'idle' && !streamError && (
-          <div className="flex flex-col items-center gap-6 w-full max-w-sm">
-            <div className="text-center">
-              <h1 className="text-2xl font-bold text-white">Camera Setup</h1>
-              <p className="text-gray-400 text-sm mt-1">Share this code with the viewer device</p>
-            </div>
-
-            {/* QR code toggle */}
-            <button
-              onClick={() => setShowQR((v) => !v)}
-              className="bg-white p-3 rounded-2xl shadow-lg active:scale-95 transition-transform"
-              aria-label={showQR ? 'Hide QR code' : 'Show QR code'}
+      {/* ── Idle / setup state ─────────────────────────────────────────── */}
+      {!isStreaming && (
+        <div className="relative z-10 flex flex-col h-full pt-safe pb-safe">
+          {/* Top bar */}
+          <div className="flex items-center px-5 py-4">
+            <Link
+              href="/"
+              className="flex items-center gap-1.5 text-white/40 hover:text-white/70 text-sm transition-colors"
             >
-              {showQR && qrDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrDataUrl} alt="QR code to connect viewer" width={180} height={180} />
-              ) : (
-                <div className="w-[180px] h-[180px] flex items-center justify-center text-gray-400 text-sm">
-                  {showQR ? 'Generating…' : 'Tap to show QR'}
+              <ArrowLeft size={14} />
+              Home
+            </Link>
+          </div>
+
+          {/* Center content */}
+          <div className="flex-1 flex flex-col items-center justify-center px-6 gap-6">
+            {pageState === 'requesting-permission' ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col items-center gap-4"
+              >
+                <div className="w-10 h-10 rounded-full border-2 border-accent-blue/40 border-t-accent-blue animate-spin" />
+                <p className="text-white/60 text-sm">Camera openen…</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                className="w-full max-w-sm"
+              >
+                <GlassPanel className="p-6 flex flex-col gap-6">
+                  <div>
+                    <h2 className="text-white font-semibold text-lg">Camera instellen</h2>
+                    <p className="text-white/35 text-sm mt-1">Deel de code met het kijkende apparaat</p>
+                  </div>
+
+                  {/* QR code */}
+                  <div className="flex justify-center">
+                    <div className="bg-white p-3 rounded-2xl">
+                      {qrDataUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={qrDataUrl} alt="QR code om kijker te verbinden" width={160} height={160} />
+                      ) : (
+                        <div className="w-[160px] h-[160px] flex items-center justify-center">
+                          <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-white/25 text-xs uppercase tracking-widest">Kamercode</p>
+                    <RoomCodeDisplay code={ROOM_CODE} size="lg" />
+                  </div>
+
+                  {streamError ? (
+                    <div className="bg-live/10 border border-live/20 rounded-2xl p-4 text-center">
+                      <p className="text-live/80 text-sm font-medium">Camera fout</p>
+                      <p className="text-white/40 text-xs mt-1">{streamError}</p>
+                    </div>
+                  ) : (
+                    <Button size="lg" className="w-full" onClick={handleStart}>
+                      Camera starten
+                    </Button>
+                  )}
+                </GlassPanel>
+              </motion.div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Streaming state ────────────────────────────────────────────── */}
+      {isStreaming && (
+        <>
+          {/* Top bar — always visible */}
+          <div className="absolute inset-x-0 top-0 z-30 pt-safe px-5 py-4">
+            <div className="flex items-center justify-between">
+              <Link
+                href="/"
+                onClick={handleStop}
+                className="flex items-center gap-1.5 text-white/50 hover:text-white text-sm transition-colors"
+              >
+                <ArrowLeft size={14} />
+              </Link>
+              <div className="flex items-center gap-4">
+                <LiveIndicator />
+                {battery.isSupported && battery.level !== null && (
+                  <BatteryBadge level={battery.level} charging={battery.charging ?? false} />
+                )}
+                <div className="flex items-center gap-1.5 text-white/50">
+                  <Users size={13} strokeWidth={1.5} />
+                  <span className="text-xs">{viewerCount}</span>
                 </div>
-              )}
-            </button>
-
-            <div className="text-center">
-              <p className="text-gray-500 text-xs uppercase tracking-widest mb-1">
-                Room Code
-              </p>
-              <p className="text-5xl font-mono font-bold tracking-[0.2em] text-white">
-                {ROOM_CODE}
-              </p>
+              </div>
             </div>
-
-            <Button size="lg" className="w-full text-xl" onClick={handleStart}>
-              🎥 Start Camera
-            </Button>
-          </div>
-        )}
-
-        {/* Requesting permission spinner */}
-        {pageState === 'requesting-permission' && (
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-            <p className="text-white font-semibold">Requesting camera access…</p>
-            <p className="text-gray-400 text-sm">Tap Allow when prompted</p>
-          </div>
-        )}
-
-        {/* Stream error */}
-        {streamError && (
-          <div className="bg-danger/10 border border-danger/50 rounded-2xl p-5 text-center w-full max-w-sm">
-            <p className="text-2xl mb-2">🚫</p>
-            <p className="text-danger font-semibold">Camera Error</p>
-            <p className="text-gray-300 text-sm mt-2 leading-relaxed">{streamError}</p>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="mt-4"
-              onClick={() => setPageState('idle')}
-            >
-              Try Again
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Bottom controls — only while streaming ─────────────────────── */}
-      {pageState === 'streaming' && stream && (
-        <div className="relative z-10 flex flex-col gap-3 px-4 pb-safe py-3">
-          {/* Audio level meter */}
-          <div className="bg-black/40 rounded-xl p-3">
-            <AudioMeter level={audioLevel} isActive={audioIsActive} />
           </div>
 
-          {/* Camera controls */}
-          <div className="bg-black/40 rounded-xl p-3">
-            <CameraControls
-              onFlip={flipCamera}
-              onToggleNightMode={() => setIsNightMode((n) => !n)}
-              isNightMode={isNightMode}
-              audioThreshold={audioThreshold}
-              onThresholdChange={setAudioThreshold}
-            />
-          </div>
+          {/* Microphone blocked warning */}
+          <AnimatePresence>
+            {micBlocked && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="absolute top-20 inset-x-0 z-30 flex justify-center px-5"
+              >
+                <GlassPanel className="px-4 py-2.5">
+                  <p className="text-warning text-xs text-center">
+                    Microfoon geblokkeerd — Instellingen → Privacy → Microfoon → Safari
+                  </p>
+                </GlassPanel>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* Room code reminder + stop */}
-          <div className="flex items-center justify-between px-1">
-            <div>
-              <p className="text-gray-500 text-xs">Room code</p>
-              <p className="text-white font-mono font-bold tracking-widest text-lg">
-                {ROOM_CODE}
-              </p>
-            </div>
-            <Button variant="danger" size="sm" onClick={handleStop}>
-              Stop
-            </Button>
-          </div>
-        </div>
+          {/* Bottom sheet — auto-hides */}
+          <AnimatePresence>
+            {showSheet && (
+              <motion.div
+                initial={{ y: 100, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 100, opacity: 0 }}
+                transition={{ type: 'spring', damping: 30, stiffness: 200 }}
+                className="absolute inset-x-0 bottom-0 z-30 pb-safe px-4 py-4"
+              >
+                <GlassPanel className="p-4 flex flex-col gap-4">
+                  {/* Room code + status */}
+                  <div className="flex items-center justify-between">
+                    <RoomCodeDisplay code={ROOM_CODE} size="sm" />
+                    <span className="text-white/30 text-xs">
+                      {viewerCount === 0 ? 'Wachten op kijker…' : `${viewerCount} kijker${viewerCount > 1 ? 's' : ''}`}
+                    </span>
+                  </div>
+
+                  {/* Audio pulse */}
+                  <AudioPulse level={audioLevel} isActive={audioIsActive} nightMode={isNightMode} />
+
+                  {/* Controls */}
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-2">
+                      <IconBtn
+                        icon={FlipHorizontal}
+                        label="Camera omdraaien"
+                        onPress={flipCamera}
+                      />
+                      <IconBtn
+                        icon={isMicMuted ? MicOff : Mic}
+                        label={isMicMuted ? 'Microfoon aan' : 'Microfoon uit'}
+                        active={isMicMuted}
+                        onPress={() => setIsMicMuted((v) => !v)}
+                      />
+                      <IconBtn
+                        icon={isNightMode ? Sun : Moon}
+                        label={isNightMode ? 'Nachtmodus uit' : 'Nachtmodus aan'}
+                        active={isNightMode}
+                        onPress={() => setIsNightMode((v) => !v)}
+                      />
+                    </div>
+                    <button
+                      onClick={handleStop}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-live/10 border border-live/20 text-live/80 text-xs font-medium active:scale-95 transition-all"
+                      aria-label="Stop camera"
+                    >
+                      <StopCircle size={13} strokeWidth={1.5} />
+                      Stop
+                    </button>
+                  </div>
+                </GlassPanel>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
       )}
     </div>
+  )
+}
+
+function IconBtn({
+  icon: Icon,
+  label,
+  onPress,
+  active = false,
+}: {
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>
+  label: string
+  onPress: () => void
+  active?: boolean
+}) {
+  return (
+    <button
+      onClick={onPress}
+      aria-label={label}
+      className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-90
+        ${active
+          ? 'bg-accent-blue/20 border border-accent-blue/30 text-accent-blue'
+          : 'bg-white/5 border border-white/8 text-white/60 hover:text-white'
+        }`}
+    >
+      <Icon size={17} strokeWidth={1.5} />
+    </button>
   )
 }

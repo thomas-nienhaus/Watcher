@@ -1,5 +1,7 @@
 'use client'
 
+import { motion } from 'framer-motion'
+import { Loader2, WifiOff, RefreshCw } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import type { ViewerPageState } from '@/types'
 
@@ -11,24 +13,41 @@ interface Props {
 
 export default function ConnectionStatus({ state, error, onReconnect }: Props) {
   return (
-    <div className="flex flex-col items-center gap-6 p-8 text-center max-w-xs">
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="flex flex-col items-center gap-6 p-8 text-center max-w-xs"
+    >
       {state === 'connecting' && (
         <>
-          <div className="w-14 h-14 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <Loader2 size={40} strokeWidth={1} className="text-white/30 animate-spin" />
           <div>
-            <p className="text-white font-semibold text-lg">Connecting…</p>
-            <p className="text-gray-400 text-sm mt-1">Reaching the signaling server</p>
+            <p className="text-white font-semibold text-lg">Verbinden…</p>
+            <p className="text-white/35 text-sm mt-1">Signaalserver bereiken</p>
           </div>
         </>
       )}
 
       {state === 'waiting-for-camera' && (
         <>
-          <div className="w-14 h-14 border-4 border-warning border-t-transparent rounded-full animate-spin" />
+          <div className="relative flex items-center justify-center w-12 h-12">
+            <motion.div
+              className="absolute w-full h-full rounded-full border border-white/15"
+              animate={{ scale: [1, 1.5, 1], opacity: [0.4, 0, 0.4] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeOut' }}
+            />
+            <motion.div
+              className="absolute w-full h-full rounded-full border border-white/10"
+              animate={{ scale: [1, 1.8, 1], opacity: [0.2, 0, 0.2] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeOut', delay: 0.4 }}
+            />
+            <div className="w-2 h-2 rounded-full bg-white/40" />
+          </div>
           <div>
-            <p className="text-white font-semibold text-lg">Waiting for camera…</p>
-            <p className="text-gray-400 text-sm mt-1">
-              Make sure the camera device has started streaming
+            <p className="text-white font-semibold text-lg">Wachten op camera…</p>
+            <p className="text-white/35 text-sm mt-1">
+              Start de camera op het andere apparaat
             </p>
           </div>
         </>
@@ -36,16 +55,19 @@ export default function ConnectionStatus({ state, error, onReconnect }: Props) {
 
       {(state === 'disconnected' || state === 'error') && (
         <>
-          <div className="text-5xl">📵</div>
+          <div className="w-12 h-12 rounded-2xl bg-surface-2 border border-surface-3 flex items-center justify-center">
+            <WifiOff size={22} strokeWidth={1.5} className="text-white/40" />
+          </div>
           <div>
             <p className="text-white font-semibold text-lg">Camera offline</p>
-            {error && <p className="text-gray-400 text-sm mt-1">{error}</p>}
+            {error && <p className="text-white/35 text-sm mt-1">{error}</p>}
           </div>
           <Button onClick={onReconnect} size="lg" className="w-full">
-            🔄 Reconnect
+            <RefreshCw size={15} strokeWidth={1.5} />
+            Opnieuw verbinden
           </Button>
         </>
       )}
-    </div>
+    </motion.div>
   )
 }
