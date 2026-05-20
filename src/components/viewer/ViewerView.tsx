@@ -179,23 +179,25 @@ export default function ViewerView({ roomCode }: Props) {
 
       {/* Persistent audio indicator — always visible when streaming */}
       {isStreaming && (
-        <div className="absolute bottom-0 inset-x-0 pb-safe z-30 flex justify-center pb-3 pointer-events-none">
-          <div
-            className="flex items-center gap-1 transition-opacity duration-500"
-            style={{ opacity: audioLevel > 3 ? 1 : 0.25 }}
-          >
-            {Array.from({ length: 9 }).map((_, i) => {
-              const filled = Math.round((audioLevel / 100) * 9)
+        <div className="absolute bottom-0 inset-x-0 pb-safe z-30 flex justify-center py-3 pointer-events-none">
+          <div className="flex items-end gap-1">
+            {Array.from({ length: 12 }).map((_, i) => {
+              const filled = Math.round((audioLevel / 100) * 12)
+              const isFilled = i < filled
+              // Color: green → yellow → red across the 12 bars
+              const barColor = i < 4
+                ? '#4ade80'   // green
+                : i < 8
+                  ? '#facc15' // yellow
+                  : '#f87171' // red
               return (
                 <div
                   key={i}
-                  className="rounded-full transition-all duration-75"
+                  className="rounded-sm transition-all duration-75"
                   style={{
-                    width: 3,
-                    height: i < filled ? Math.round(4 + (filled - i) * 1.8) : 4,
-                    backgroundColor: soundAlert
-                      ? (isNightMode ? '#FF4D4D' : '#7DD3FC')
-                      : 'rgba(255,255,255,0.35)',
+                    width: 4,
+                    height: isFilled ? 8 + i * 1.5 : 6,
+                    backgroundColor: isFilled ? barColor : 'rgba(255,255,255,0.15)',
                   }}
                 />
               )
