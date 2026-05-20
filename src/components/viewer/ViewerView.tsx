@@ -31,9 +31,12 @@ export default function ViewerView({ roomCode }: Props) {
   const [soundAlert, setSoundAlert] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [cameraSettings, setCameraSettings] = useState<{ isMicMuted: boolean; isNightMode: boolean } | null>(null)
+  const [volume, setVolume] = useState(2)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const joinedSocketIdRef = useRef<string | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const gainNodeRef = useRef<GainNode | null>(null)
   const router = useRouter()
 
   const { socket, status: socketStatus } = useSocket()
@@ -48,13 +51,36 @@ export default function ViewerView({ roomCode }: Props) {
     controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000)
   }, [])
 
+  const initAudioBoost = useCallback(() => {
+    if (!videoRef.current || gainNodeRef.current) return
+    try {
+      const ctx = new AudioContext()
+      const source = ctx.createMediaElementSource(videoRef.current)
+      const gain = ctx.createGain()
+      gain.gain.value = volume
+      source.connect(gain)
+      gain.connect(ctx.destination)
+      audioCtxRef.current = ctx
+      gainNodeRef.current = gain
+      if (ctx.state === 'suspended') ctx.resume()
+    } catch {
+      // Fallback: rely on native video volume only
+    }
+  }, [videoRef, volume])
+
+  // Sync gain value with volume slider
+  useEffect(() => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
+  }, [volume])
+
   const handleTap = useCallback(() => {
     if (isMuted) {
       setIsMuted(false)
       if (videoRef.current) videoRef.current.muted = false
+      initAudioBoost()
     }
     resetControlsTimer()
-  }, [isMuted, resetControlsTimer, videoRef])
+  }, [isMuted, resetControlsTimer, videoRef, initAudioBoost])
 
   // Join room — guard prevents double-join on iOS Safari re-renders
   useEffect(() => {
@@ -249,6 +275,28 @@ export default function ViewerView({ roomCode }: Props) {
               >
                 <GlassPanel className="px-4 py-3 flex flex-col gap-3">
                   <AudioPulse level={audioLevel} isActive={soundAlert} nightMode={isNightMode} />
+
+                  {/* Volume slider — only shown when unmuted */}
+                  {!isMuted && (
+                    <div className="flex items-center gap-2.5 px-1">
+                      <VolumeX size={12} strokeWidth={1.5} className="text-white/25 shrink-0" />
+                      <input
+                        type="range"
+                        min={1}
+                        max={4}
+                        step={0.1}
+                        value={volume}
+                        onChange={(e) => { setVolume(parseFloat(e.target.value)); resetControlsTimer() }}
+                        className="flex-1 h-1 rounded-full accent-accent-blue cursor-pointer"
+                        aria-label="Volume versterking"
+                      />
+                      <Volume2 size={12} strokeWidth={1.5} className="text-white/25 shrink-0" />
+                      <span className="text-white/30 text-xs w-8 text-right tabular-nums">
+                        {Math.round(volume * 100)}%
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <IconBtn
@@ -258,7 +306,14 @@ export default function ViewerView({ roomCode }: Props) {
                         onPress={() => {
                           const next = !isMuted
                           setIsMuted(next)
-                          if (videoRef.current) videoRef.current.muted = next
+                          if (next) {
+                            if (gainNodeRef.current) gainNodeRef.current.gain.value = 0
+                          } else {
+                            if (videoRef.current) videoRef.current.muted = false
+                            initAudioBoost()
+                            if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
+                            if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
+                          }
                           resetControlsTimer()
                         }}
                       />
