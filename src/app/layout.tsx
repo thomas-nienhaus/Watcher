@@ -1,6 +1,13 @@
 import type { Metadata, Viewport } from 'next'
+import { Inter } from 'next/font/google'
 import './globals.css'
 import ServiceWorkerRegistrar from '@/components/shared/ServiceWorkerRegistrar'
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'BabyWatch',
@@ -20,18 +27,17 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  // viewportFit: cover ensures content reaches the notch/home-indicator edges
   viewportFit: 'cover',
-  themeColor: '#0a0a0a',
+  themeColor: '#09090B',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className={`h-full ${inter.variable}`}>
       <head>
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       </head>
-      <body className="h-full overflow-hidden bg-background">
+      <body className="h-full overflow-hidden bg-surface-0">
         <ServiceWorkerRegistrar />
         {children}
       </body>
