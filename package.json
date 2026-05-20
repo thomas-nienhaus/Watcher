@@ -11,6 +11,7 @@
   "dependencies": {
     "express": "^4.21.0",
     "framer-motion": "^12.39.0",
+    "jsqr": "^1.4.0",
     "lucide-react": "^1.16.0",
     "next": "15.3.9",
     "nosleep.js": "^0.12.0",
