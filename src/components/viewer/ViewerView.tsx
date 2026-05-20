@@ -59,7 +59,7 @@ export default function ViewerView({ roomCode }: Props) {
   useEffect(() => {
     if (!socket || socketStatus !== 'connected') return
     if (joinedSocketIdRef.current === socket.id) return
-    joinedSocketIdRef.current = socket.id
+    joinedSocketIdRef.current = socket.id ?? null
 
     socket.emit(SOCKET_EVENTS.VIEWER_JOIN, { roomCode })
 
