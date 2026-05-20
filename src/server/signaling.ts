@@ -32,6 +32,14 @@ const cameraToRoom = new Map<string, string>()
 
 const rateLimitMap = new Map<string, RateLimitState>()
 
+// Purge stale rate-limit entries every 60s to prevent unbounded map growth
+setInterval(() => {
+  const staleThreshold = Date.now() - 5000
+  for (const [id, state] of rateLimitMap) {
+    if (state.windowStart < staleThreshold) rateLimitMap.delete(id)
+  }
+}, 60_000).unref()
+
 const ROOM_EXPIRY_MS = parseInt(process.env.ROOM_EXPIRY_MS ?? '1800000', 10)
 const MAX_ROOMS = parseInt(process.env.MAX_ROOMS ?? '1000', 10)
 const MAX_EVENTS_PER_SECOND = parseInt(
@@ -106,6 +114,11 @@ export function registerSignalingHandlers(io: Server, socket: Socket): void {
   // ── Viewer: join existing room ───────────────────────────────────────────
   socket.on('viewer-join', ({ roomCode }: { roomCode: string }) => {
     if (isRateLimited(socket.id)) return
+
+    if (!roomCode || !/^[A-Z2-9]{6}$/.test(roomCode)) {
+      socket.emit('room-error', { message: 'Invalid room code format' })
+      return
+    }
 
     const room = rooms.get(roomCode)
     if (!room) {

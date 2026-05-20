@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 
 function isIOS(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -36,7 +37,7 @@ export default function IOSWarning() {
   return (
     <div className="fixed top-0 left-0 right-0 z-50 bg-warning text-black px-4 py-3 pt-safe">
       <div className="flex items-start gap-3 max-w-lg mx-auto">
-        <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+        <AlertTriangle size={18} className="shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-sm">iOS limitation</p>
           <p className="text-xs mt-0.5 leading-relaxed">

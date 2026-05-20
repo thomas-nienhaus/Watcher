@@ -17,13 +17,19 @@ export function useWakeLock(): WakeLockControls {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
   // nosleep.js has no reliable TS types; use unknown and cast at call site
   const noSleepRef = useRef<{ enable: () => Promise<void>; disable: () => void } | null>(null)
+  // Guard against concurrent enable() calls (e.g. rapid visibility changes)
+  const enablingRef = useRef(false)
 
   const enable = useCallback(async () => {
+    if (enablingRef.current || wakeLockRef.current) return
+    enablingRef.current = true
+    try {
     // Prefer native Wake Lock API (Chrome, Edge, recent Safari)
     if (isSupported) {
       try {
         wakeLockRef.current = await navigator.wakeLock!.request('screen')
-        wakeLockRef.current.addEventListener('release', () => setIsLocked(false))
+        // { once: true } auto-removes the listener after first fire
+        wakeLockRef.current.addEventListener('release', () => setIsLocked(false), { once: true })
         setIsLocked(true)
         return
       } catch {
@@ -45,6 +51,9 @@ export function useWakeLock(): WakeLockControls {
       setIsLocked(true)
     } catch (err) {
       console.warn('[WakeLock] NoSleep.js fallback failed:', err)
+    }
+    } finally {
+      enablingRef.current = false
     }
   }, [isSupported])
 

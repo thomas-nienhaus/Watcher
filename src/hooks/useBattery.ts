@@ -35,6 +35,8 @@ export function useBattery(): BatteryState {
       update()
       b.addEventListener('levelchange', update)
       b.addEventListener('chargingchange', update)
+    }).catch((err) => {
+      console.warn('[Battery] API unavailable:', err)
     })
 
     return () => {

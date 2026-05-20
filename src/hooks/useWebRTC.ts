@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
-import { createPeerConnection, addStreamTracks } from '@/lib/webrtc'
+import { createPeerConnection, addStreamTracks, prefetchIceServers } from '@/lib/webrtc'
 import { SOCKET_EVENTS } from '@/lib/constants'
 import type { CameraWebRTCState, ViewerWebRTCState } from '@/types'
 
@@ -17,6 +17,9 @@ export function useCameraWebRTC(
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map())
   const pendingViewerIds = useRef<Set<string>>(new Set())
   const [viewerCount, setViewerCount] = useState(0)
+
+  // Prefetch ICE config on mount so TURN credentials are ready before first call
+  useEffect(() => { prefetchIceServers() }, [])
   const [connectionStates, setConnectionStates] = useState<Map<string, RTCPeerConnectionState>>(
     new Map()
   )
@@ -63,13 +66,18 @@ export function useCameraWebRTC(
         }
       }
 
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-
-      socket.emit(SOCKET_EVENTS.OFFER, {
-        offer: pc.localDescription,
-        targetSocketId: viewerSocketId,
-      })
+      try {
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        socket.emit(SOCKET_EVENTS.OFFER, {
+          offer: pc.localDescription,
+          targetSocketId: viewerSocketId,
+        })
+      } catch (err) {
+        console.error('[WebRTC] createOffer failed:', err)
+        pc.close()
+        peerConnections.current.delete(viewerSocketId)
+      }
     },
     [socket] // localStream intentionally excluded — read via ref to avoid reconnecting viewers on flip
   )
@@ -92,10 +100,10 @@ export function useCameraWebRTC(
     peerConnections.current.forEach((pc) => {
       pc.getSenders().forEach((sender) => {
         if (sender.track?.kind === 'video' && videoTrack) {
-          sender.replaceTrack(videoTrack).catch(() => {})
+          sender.replaceTrack(videoTrack).catch((err) => console.warn('[WebRTC] replaceTrack video:', err))
         }
         if (sender.track?.kind === 'audio' && audioTrack) {
-          sender.replaceTrack(audioTrack).catch(() => {})
+          sender.replaceTrack(audioTrack).catch((err) => console.warn('[WebRTC] replaceTrack audio:', err))
         }
       })
     })
