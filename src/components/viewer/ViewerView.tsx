@@ -25,6 +25,7 @@ export default function ViewerView({ roomCode }: Props) {
   const [soundAlert, setSoundAlert] = useState(false)
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const soundAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const joinedSocketIdRef = useRef<string | null>(null)
   const router = useRouter()
 
   const { socket, status: socketStatus } = useSocket()
@@ -51,9 +52,11 @@ export default function ViewerView({ roomCode }: Props) {
     resetControlsTimer()
   }, [isMuted, resetControlsTimer, videoRef])
 
-  // Join the room when socket connects
+  // Join the room when socket connects — guard prevents double-join on iOS Safari re-renders
   useEffect(() => {
     if (!socket || socketStatus !== 'connected') return
+    if (joinedSocketIdRef.current === socket.id) return
+    joinedSocketIdRef.current = socket.id
 
     socket.emit(SOCKET_EVENTS.VIEWER_JOIN, { roomCode })
 

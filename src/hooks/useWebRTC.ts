@@ -177,6 +177,9 @@ export function useViewerWebRTC(
   const [error, setError] = useState<string | null>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  // iOS Safari: event.streams is empty — tracks arrive individually.
+  // Collect them into one MediaStream so the video element gets a complete source.
+  const incomingStreamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     if (!socket || !cameraSocketId) return
@@ -190,16 +193,23 @@ export function useViewerWebRTC(
     }) => {
       try {
         pcRef.current?.close()
+        incomingStreamRef.current = new MediaStream()
 
         const pc = createPeerConnection()
         pcRef.current = pc
 
         pc.ontrack = (event) => {
-          const [stream] = event.streams
-          setRemoteStream(stream)
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream
-          }
+          // Desktop: event.streams[0] contains the full stream.
+          // iOS Safari: event.streams is empty — each track arrives separately.
+          // Always add to incomingStreamRef so both paths produce a complete stream.
+          const stream = event.streams[0] ?? incomingStreamRef.current!
+          event.streams[0]
+            ? (incomingStreamRef.current = stream)
+            : incomingStreamRef.current!.addTrack(event.track)
+
+          const combined = incomingStreamRef.current!
+          setRemoteStream(combined)
+          if (videoRef.current) videoRef.current.srcObject = combined
         }
 
         pc.onicecandidate = ({ candidate }) => {
