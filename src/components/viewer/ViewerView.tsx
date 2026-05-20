@@ -68,10 +68,13 @@ export default function ViewerView({ roomCode }: Props) {
   }, [])
 
   const initAudioBoost = useCallback(() => {
-    if (!videoRef.current || gainNodeRef.current) return
+    if (!remoteStream || gainNodeRef.current) return
     try {
       const ctx = new AudioContext()
-      const source = ctx.createMediaElementSource(videoRef.current)
+      // createMediaStreamSource (audio-only) avoids the iOS Safari bug where
+      // createMediaElementSource stops video rendering while audio continues
+      const audioOnlyStream = new MediaStream(remoteStream.getAudioTracks())
+      const source = ctx.createMediaStreamSource(audioOnlyStream)
       const gain = ctx.createGain()
       gain.gain.value = volume
       source.connect(gain)
@@ -80,9 +83,10 @@ export default function ViewerView({ roomCode }: Props) {
       gainNodeRef.current = gain
       if (ctx.state === 'suspended') ctx.resume()
     } catch {
-      // Fallback: rely on native video volume only
+      // Fallback: unmute video element directly
+      if (videoRef.current) videoRef.current.muted = false
     }
-  }, [videoRef, volume])
+  }, [remoteStream, videoRef, volume])
 
   // Sync gain value with volume slider
   useEffect(() => {
@@ -92,8 +96,7 @@ export default function ViewerView({ roomCode }: Props) {
   const handleTap = useCallback(() => {
     if (isMuted) {
       setIsMuted(false)
-      if (videoRef.current) videoRef.current.muted = false
-      initAudioBoost()
+      initAudioBoost()  // audio routed through AudioContext, video element stays muted
     }
     resetControlsTimer()
 
@@ -105,7 +108,7 @@ export default function ViewerView({ roomCode }: Props) {
       tapCountRef.current = 0
       setShowStats((v) => !v)
     }
-  }, [isMuted, resetControlsTimer, videoRef, initAudioBoost])
+  }, [isMuted, resetControlsTimer, initAudioBoost])
 
   // ── Effect 1: register socket event listeners (re-runs on any reconnect) ──
   // Defined before Effect 2 so React runs them in order: listeners registered
@@ -198,10 +201,12 @@ export default function ViewerView({ roomCode }: Props) {
     }
   }, [remoteStream])
 
-  // Set srcObject after React renders the video element
+  // Set srcObject after React renders the video element.
+  // Explicit play() required — iOS Safari doesn't always honour autoPlay on programmatic srcObject assignment.
   useEffect(() => {
     if (!remoteStream || !videoRef.current) return
     videoRef.current.srcObject = remoteStream
+    videoRef.current.play().catch(() => {})
   }, [remoteStream, videoRef])
 
   useEffect(() => {
@@ -440,7 +445,6 @@ export default function ViewerView({ roomCode }: Props) {
                           if (next) {
                             if (gainNodeRef.current) gainNodeRef.current.gain.value = 0
                           } else {
-                            if (videoRef.current) videoRef.current.muted = false
                             initAudioBoost()
                             if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
                             if (audioCtxRef.current?.state === 'suspended') audioCtxRef.current.resume()
