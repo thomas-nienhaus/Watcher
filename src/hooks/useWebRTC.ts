@@ -81,6 +81,26 @@ export function useCameraWebRTC(
     pendingViewerIds.current.clear()
   }, [localStream, createOffer])
 
+  // When stream changes (camera flip), replace tracks in all existing peer connections.
+  // replaceTrack() swaps the track without renegotiation.
+  useEffect(() => {
+    if (!localStream || peerConnections.current.size === 0) return
+
+    const videoTrack = localStream.getVideoTracks()[0]
+    const audioTrack = localStream.getAudioTracks()[0]
+
+    peerConnections.current.forEach((pc) => {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind === 'video' && videoTrack) {
+          sender.replaceTrack(videoTrack).catch(() => {})
+        }
+        if (sender.track?.kind === 'audio' && audioTrack) {
+          sender.replaceTrack(audioTrack).catch(() => {})
+        }
+      })
+    })
+  }, [localStream])
+
   useEffect(() => {
     if (!socket) return
 
