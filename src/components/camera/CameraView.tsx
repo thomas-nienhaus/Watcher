@@ -85,7 +85,9 @@ export default function CameraView() {
     roomJoinedRef.current = true
     socket.emit(SOCKET_EVENTS.JOIN_ROOM, { roomCode: ROOM_CODE })
     const onRoomError = ({ message }: { message: string }) => {
-      console.error('[Room]', message)
+      console.warn('[Room] Error, recreating room:', message)
+      roomJoinedRef.current = false
+      socket.emit(SOCKET_EVENTS.JOIN_ROOM, { roomCode: ROOM_CODE })
     }
     socket.on(SOCKET_EVENTS.ROOM_ERROR, onRoomError)
     return () => { socket.off(SOCKET_EVENTS.ROOM_ERROR, onRoomError) }

@@ -40,7 +40,7 @@ setInterval(() => {
   }
 }, 60_000).unref()
 
-const ROOM_EXPIRY_MS = parseInt(process.env.ROOM_EXPIRY_MS ?? '1800000', 10)
+const ROOM_EXPIRY_MS = parseInt(process.env.ROOM_EXPIRY_MS ?? '28800000', 10)
 const MAX_ROOMS = parseInt(process.env.MAX_ROOMS ?? '1000', 10)
 const MAX_EVENTS_PER_SECOND = parseInt(
   process.env.RATE_LIMIT_EVENTS_PER_SECOND ?? '10',

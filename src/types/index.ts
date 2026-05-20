@@ -58,6 +58,7 @@ export interface ViewerWebRTCState {
   remoteStream: MediaStream | null
   connectionState: RTCPeerConnectionState | 'idle'
   error: string | null
+  getStats: () => Promise<RTCStatsReport | null>
 }
 
 // ─── Media Stream ────────────────────────────────────────────────────────────

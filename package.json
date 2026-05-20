@@ -6,7 +6,8 @@
     "dev": "tsx server.js",
     "build": "next build && tsc -p tsconfig.server.json",
     "start": "NODE_ENV=production node server.js",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:soak": "playwright test tests/soak.spec.ts"
   },
   "dependencies": {
     "express": "^4.21.0",
@@ -22,6 +23,7 @@
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/express": "^4.17.21",
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.5",
