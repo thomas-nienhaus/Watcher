@@ -16,7 +16,7 @@ export default function VideoStream({ videoRef, isMuted, onTap }: Props) {
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isMuted}
+        muted
         className="w-full h-full object-cover bg-black"
       />
       {isMuted && (
