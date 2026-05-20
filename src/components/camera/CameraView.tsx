@@ -28,6 +28,7 @@ export default function CameraView() {
   const [audioThreshold, setAudioThreshold] = useState<number>(AUDIO_DETECTION.DEFAULT_THRESHOLD)
   const [showQR, setShowQR] = useState(true)
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
+  const [micBlocked, setMicBlocked] = useState(false)
   const qrGeneratedRef = useRef(false)
   const roomJoinedRef = useRef(false)
 
@@ -95,6 +96,8 @@ export default function CameraView() {
       setPageState('idle')
       return
     }
+
+    setMicBlocked(streamRef.current.getAudioTracks().length === 0)
 
     // initAudioContext MUST be called synchronously inside this user gesture handler.
     // iOS Safari will refuse to create AudioContext outside of a direct user gesture.
@@ -229,8 +232,16 @@ export default function CameraView() {
       {/* ── Bottom controls — only while streaming ─────────────────────── */}
       {pageState === 'streaming' && stream && (
         <div className="relative z-10 flex flex-col gap-3 px-4 pb-safe py-3">
+          {/* Microphone blocked warning */}
+          {micBlocked && (
+            <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-xl px-4 py-2 text-yellow-300 text-sm">
+              🎤 Microfoon geblokkeerd — Instellingen → Privacy → Microfoon → Safari → aan
+            </div>
+          )}
+
           {/* Audio level meter */}
           <div className="bg-black/40 rounded-xl p-3">
+            <div className="text-gray-500 text-xs mb-1">Geluidsniveau</div>
             <AudioMeter level={audioLevel} isActive={audioIsActive} />
           </div>
 

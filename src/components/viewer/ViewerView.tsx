@@ -110,6 +110,14 @@ export default function ViewerView({ roomCode }: Props) {
     if (remoteStream) setPageState('streaming')
   }, [remoteStream])
 
+  // Set srcObject after React renders the video element.
+  // videoRef.current is null when ontrack fires (video not yet in DOM),
+  // so we must set it here, after the render triggered by setRemoteStream.
+  useEffect(() => {
+    if (!remoteStream || !videoRef.current) return
+    videoRef.current.srcObject = remoteStream
+  }, [remoteStream, videoRef])
+
   useEffect(() => {
     if (connectionState === 'failed') setPageState('disconnected')
   }, [connectionState])
