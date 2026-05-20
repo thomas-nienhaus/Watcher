@@ -177,6 +177,33 @@ export default function ViewerView({ roomCode }: Props) {
         <VideoStream videoRef={videoRef} isMuted={isMuted} onTap={handleTap} />
       )}
 
+      {/* Persistent audio indicator — always visible when streaming */}
+      {isStreaming && (
+        <div className="absolute bottom-0 inset-x-0 pb-safe z-30 flex justify-center pb-3 pointer-events-none">
+          <div
+            className="flex items-center gap-1 transition-opacity duration-500"
+            style={{ opacity: audioLevel > 3 ? 1 : 0.25 }}
+          >
+            {Array.from({ length: 9 }).map((_, i) => {
+              const filled = Math.round((audioLevel / 100) * 9)
+              return (
+                <div
+                  key={i}
+                  className="rounded-full transition-all duration-75"
+                  style={{
+                    width: 3,
+                    height: i < filled ? Math.round(4 + (filled - i) * 1.8) : 4,
+                    backgroundColor: soundAlert
+                      ? (isNightMode ? '#FF4D4D' : '#7DD3FC')
+                      : 'rgba(255,255,255,0.35)',
+                  }}
+                />
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Non-streaming state */}
       {!isStreaming && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-0">

@@ -77,7 +77,10 @@ export function useAudioDetection(
     const analyser = ctx.createAnalyser()
     analyser.fftSize = AUDIO_DETECTION.FFT_SIZE
 
-    const source = ctx.createMediaStreamSource(s)
+    // Use audio-only stream — passing the full stream (with video) to AudioContext
+    // causes iOS Safari to consume the video track, resulting in a black camera preview.
+    const audioOnlyStream = new MediaStream(s.getAudioTracks())
+    const source = ctx.createMediaStreamSource(audioOnlyStream)
     source.connect(analyser)
 
     contextRef.current = ctx
