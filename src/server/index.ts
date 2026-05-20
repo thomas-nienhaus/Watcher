@@ -14,8 +14,14 @@ export function attachSocketServer(httpServer: HTTPServer): void {
     console.warn('[Socket] CORS_ORIGIN not set — using same-origin only (cross-origin blocked)')
   }
 
+  // `{ origin: false }` blocks all cross-origin WebSocket upgrades — equivalent to cors:false
+  // but accepted by Socket.IO's CorsOptions type.
+  const cors = corsOrigin === false
+    ? { origin: false as const }
+    : { origin: corsOrigin, methods: ['GET', 'POST'] }
+
   const io = new Server(httpServer, {
-    cors: corsOrigin === false ? false : { origin: corsOrigin, methods: ['GET', 'POST'] },
+    cors,
     perMessageDeflate: {
       threshold: 1024,
     },

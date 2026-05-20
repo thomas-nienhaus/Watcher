@@ -79,7 +79,9 @@ export function useAudioDetection(
 
     // Use audio-only stream — passing the full stream (with video) to AudioContext
     // causes iOS Safari to consume the video track, resulting in a black camera preview.
-    const audioOnlyStream = new MediaStream(s.getAudioTracks())
+    const audioTracks = s.getAudioTracks()
+    if (audioTracks.length === 0) return  // No mic — nothing to analyse
+    const audioOnlyStream = new MediaStream(audioTracks)
     const source = ctx.createMediaStreamSource(audioOnlyStream)
     source.connect(analyser)
 
